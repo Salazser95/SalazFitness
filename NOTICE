@@ -1,0 +1,50 @@
+SalazFitness
+Copyright (C) 2026 Salazser95
+
+Este programa es software libre: puede redistribuirlo y modificarlo bajo los
+terminos de la GNU Affero General Public License, version 3 o posterior,
+publicada por la Free Software Foundation.
+
+----------------------------------------------------------------------------
+OBRAS DE LAS QUE DERIVA
+----------------------------------------------------------------------------
+
+SalazFitness se apoya en wger Workout Manager y deriva de el.
+
+  wger Workout Manager
+  https://github.com/wger-project/wger
+  Copyright (C) el equipo de wger
+  Licencia: AGPL-3.0-or-later
+
+El modulo de backend (backend/salaz) importa modelos de wger, por lo que es
+obra derivada y se distribuye bajo la misma licencia AGPL-3.0-or-later.
+
+El frontend (web/) es codigo nuevo escrito para este proyecto. Se comunica con
+wger unicamente por su API REST. Se licencia igualmente bajo AGPL-3.0-or-later
+por coherencia con el resto del proyecto.
+
+----------------------------------------------------------------------------
+DATOS DE TERCEROS
+----------------------------------------------------------------------------
+
+  Catalogo de ejercicios ...... wger, licencias Creative Commons por entrada
+  Base de alimentos ........... Open Food Facts, Open Database License (ODbL)
+                                https://openfoodfacts.org
+  Tipografias Barlow .......... SIL Open Font License 1.1
+  Iconos Lucide ............... ISC License
+
+Si redistribuye la base de alimentos, la ODbL exige mantener la atribucion a
+Open Food Facts.
+
+----------------------------------------------------------------------------
+AVISO SOBRE DISTRIBUCION
+----------------------------------------------------------------------------
+
+La AGPL, en su clausula 13, obliga a ofrecer el codigo fuente a cualquier
+persona que use este software a traves de una red. Si comparte su instancia
+con otras personas, basta con darles el enlace a este repositorio.
+
+Los terminos de la App Store de Apple imponen restricciones de uso que son
+incompatibles con la GPLv3 y la AGPLv3. Distribuir alli una version modificada
+no es viable. Google Play y F-Droid si lo permiten, siempre acompanando el
+codigo fuente correspondiente.

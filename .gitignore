@@ -1,0 +1,31 @@
+# dependencias
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+
+# builds
+web/dist/
+web/dev-dist/
+*.tsbuildinfo
+
+# entorno y secretos
+.env
+.env.local
+*_extra.py
+*.key
+*.pem
+
+# datos
+*.sqlite
+*.sqlite-journal
+db/
+
+# reconocimiento (no se versiona: 926 KB de esquema generado)
+.recon/
+
+# sistema
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
