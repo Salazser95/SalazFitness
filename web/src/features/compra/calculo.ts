@@ -146,3 +146,8 @@ export function sumaDeReparteBien(shares: readonly number[]): boolean {
   const suma = shares.reduce((a, b) => a + b, 0)
   return Math.abs(suma - 100) < 0.05
 }
+
+/** Coste en centimos de una cantidad en gramos, a partir de un precio por kg en centimos. */
+export function costeIngredienteCentimos(amountGramos: number, precioCentimosPorKg: number): number {
+  return Math.round((amountGramos * precioCentimosPorKg) / 1000)
+}

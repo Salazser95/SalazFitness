@@ -1,0 +1,463 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Clock, ScanBarcode, Search, Star, X } from 'lucide-react'
+
+import { Button, Card, EmptyState, ErrorState, Field, SkeletonList } from '../../components/ui'
+import {
+  MEAL_NAMES,
+  macrosFor,
+  mapaComidas,
+  useAgregarAlimento,
+  useAsegurarComidas,
+  useBuscarIngredientes,
+  useBuscarPorCodigo,
+  usePlan,
+  usePlanInfo,
+} from './api'
+import type { Ingredient } from './api'
+import {
+  alternarFavorito,
+  leerFavoritos,
+  leerRecientes,
+  registrarReciente,
+} from './local'
+import type { AlimentoGuardado } from './local'
+import { int, num, today } from '../../lib/format'
+
+type Alimento = Ingredient | AlimentoGuardado
+type Pestana = 'buscar' | 'recientes' | 'favoritos'
+
+// ------------------------------------------------------- escaner de codigos
+
+// El navegador expone `BarcodeDetector` en runtime cuando esta disponible,
+// pero TypeScript (lib DOM de este proyecto) no lo declara: se define aqui
+// el minimo necesario. Si el API no existe, el boton de escaner ni se pinta.
+type ResultadoDeteccion = { rawValue: string }
+type BarcodeDetectorLike = { detect: (fuente: CanvasImageSource) => Promise<ResultadoDeteccion[]> }
+type BarcodeDetectorCtor = new (opciones?: { formats?: string[] }) => BarcodeDetectorLike
+
+function obtenerBarcodeDetector(): BarcodeDetectorCtor | null {
+  if (typeof window === 'undefined' || !('BarcodeDetector' in window)) return null
+  return (window as unknown as { BarcodeDetector: BarcodeDetectorCtor }).BarcodeDetector
+}
+
+function EscanerCodigoBarras({
+  onDetectado,
+  onCerrar,
+}: {
+  onDetectado: (codigo: string) => void
+  onCerrar: () => void
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let activo = true
+    let stream: MediaStream | null = null
+    let raf = 0
+    const Detector = obtenerBarcodeDetector()
+
+    if (!Detector) {
+      setError('El escaner no esta disponible en este navegador.')
+      return
+    }
+    const detector = new Detector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] })
+
+    async function bucle() {
+      if (!activo || !videoRef.current) return
+      try {
+        const resultados = await detector.detect(videoRef.current)
+        if (resultados[0]?.rawValue) {
+          onDetectado(resultados[0].rawValue)
+          return
+        }
+      } catch {
+        /* fotograma no valido, se reintenta en el siguiente */
+      }
+      if (activo) raf = requestAnimationFrame(() => void bucle())
+    }
+
+    async function iniciar() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        if (!activo || !videoRef.current) return
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+        void bucle()
+      } catch {
+        setError('No se pudo acceder a la camara.')
+      }
+    }
+
+    void iniciar()
+    return () => {
+      activo = false
+      cancelAnimationFrame(raf)
+      stream?.getTracks().forEach((t) => t.stop())
+    }
+  }, [onDetectado])
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/90 p-4">
+      <video ref={videoRef} className="max-h-[70vh] w-full max-w-md rounded-[20px] object-cover" muted playsInline />
+      <p className="text-sm text-fg-muted">{error ?? 'Apunta al codigo de barras del producto.'}</p>
+      <Button variant="secondary" onClick={onCerrar}>
+        Cerrar
+      </Button>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------- listas
+
+function ListaAlimentos({
+  alimentos,
+  favoritosIds,
+  onElegir,
+}: {
+  alimentos: Alimento[]
+  favoritosIds: Set<number>
+  onElegir: (a: Alimento) => void
+}) {
+  return (
+    <ul className="space-y-2">
+      {alimentos.map((a) => (
+        <li key={a.id}>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 rounded-[14px] border border-border bg-surface-2 px-4 py-3 text-left transition-colors duration-150 hover:bg-surface-3"
+            onClick={() => onElegir(a)}
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-sm text-fg">{a.name}</span>
+              <span className="block truncate text-xs text-fg-subtle">
+                {a.brand ?? 'Generico'} · {int(a.energy)} kcal/100 g
+              </span>
+            </span>
+            {favoritosIds.has(a.id) ? (
+              <Star size={16} className="shrink-0 text-primary" fill="currentColor" aria-hidden="true" />
+            ) : null}
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// -------------------------------------------------------------- hoja de add
+
+function HojaAlimento({
+  alimento,
+  gramos,
+  onGramos,
+  mealOptions,
+  mealId,
+  onMeal,
+  esFavorito,
+  onFavorito,
+  anadiendo,
+  onAnadir,
+  onCerrar,
+}: {
+  alimento: Alimento
+  gramos: number
+  onGramos: (g: number) => void
+  mealOptions: { id: string; nombre: string }[]
+  mealId: string
+  onMeal: (id: string) => void
+  esFavorito: boolean
+  onFavorito: () => void
+  anadiendo: boolean
+  onAnadir: () => void
+  onCerrar: () => void
+}) {
+  const macros = macrosFor(alimento, gramos)
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/60"
+        aria-label="Cerrar"
+        onClick={onCerrar}
+      />
+      <Card
+        as="section"
+        className="glass animate-rise relative z-10 w-full max-w-lg rounded-b-none border-b-0 pb-safe"
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate font-display text-xl text-fg">{alimento.name}</p>
+            {alimento.brand ? <p className="truncate text-sm text-fg-muted">{alimento.brand}</p> : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              className={`rounded-[10px] p-2 transition-colors duration-150 hover:bg-surface-2 ${esFavorito ? 'text-primary' : 'text-fg-subtle'}`}
+              aria-label={esFavorito ? 'Quitar de favoritos' : 'Anadir a favoritos'}
+              onClick={onFavorito}
+            >
+              <Star size={18} aria-hidden="true" fill={esFavorito ? 'currentColor' : 'none'} />
+            </button>
+            <button
+              type="button"
+              className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-2"
+              aria-label="Cerrar"
+              onClick={onCerrar}
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+
+        <Field
+          label="Cantidad (g)"
+          type="number"
+          inputMode="decimal"
+          min={0}
+          value={gramos}
+          onChange={(e) => onGramos(Math.max(0, Number(e.target.value)))}
+        />
+
+        <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+          <div>
+            <p className="font-display text-2xl leading-none tnum text-fg">{int(macros.energy)}</p>
+            <p className="mt-1 text-xs text-fg-muted">kcal</p>
+          </div>
+          <div>
+            <p className="font-display text-2xl leading-none tnum" style={{ color: '#22D3EE' }}>
+              {num(macros.protein)}
+            </p>
+            <p className="mt-1 text-xs text-fg-muted">prote. (g)</p>
+          </div>
+          <div>
+            <p className="font-display text-2xl leading-none tnum" style={{ color: '#C6F135' }}>
+              {num(macros.carbohydrates)}
+            </p>
+            <p className="mt-1 text-xs text-fg-muted">hidra. (g)</p>
+          </div>
+          <div>
+            <p className="font-display text-2xl leading-none tnum" style={{ color: '#A78BFA' }}>
+              {num(macros.fat)}
+            </p>
+            <p className="mt-1 text-xs text-fg-muted">grasa (g)</p>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <label htmlFor="hoja-comida" className="mb-1.5 block text-sm font-medium text-fg-muted">
+            Comida
+          </label>
+          <select
+            id="hoja-comida"
+            className="h-12 w-full rounded-[14px] border border-border bg-surface-2 px-4 text-fg transition-colors focus:border-primary"
+            value={mealId}
+            onChange={(e) => onMeal(e.target.value)}
+          >
+            {mealOptions.length === 0 ? <option value="">Crea un plan primero</option> : null}
+            {mealOptions.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <Button
+          full
+          size="lg"
+          className="mt-5"
+          disabled={!mealId || gramos <= 0 || anadiendo}
+          onClick={onAnadir}
+        >
+          {anadiendo ? 'Anadiendo...' : 'Anadir al diario'}
+        </Button>
+      </Card>
+    </div>
+  )
+}
+
+// -------------------------------------------------------------------- pagina
+
+export default function BuscarPage() {
+  const [params] = useSearchParams()
+  const fecha = params.get('fecha') ?? today()
+  const mealParam = params.get('meal')
+
+  const [pestana, setPestana] = useState<Pestana>('buscar')
+  const [texto, setTexto] = useState('')
+  const [debounced, setDebounced] = useState('')
+  const [escanerAbierto, setEscanerAbierto] = useState(false)
+  const [errorCodigo, setErrorCodigo] = useState<string | null>(null)
+
+  const [seleccionado, setSeleccionado] = useState<Alimento | null>(null)
+  const [gramos, setGramos] = useState(100)
+  const [mealIdManual, setMealIdManual] = useState<string | null>(null)
+
+  const [favoritos, setFavoritos] = useState<AlimentoGuardado[]>(() => leerFavoritos())
+  const [recientes, setRecientes] = useState<AlimentoGuardado[]>(() => leerRecientes())
+
+  // Debounce de 350 ms: la base tiene 177.302 alimentos, no se puede buscar en cada tecla.
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(texto), 350)
+    return () => clearTimeout(t)
+  }, [texto])
+
+  const busqueda = useBuscarIngredientes(debounced)
+  const porCodigo = useBuscarPorCodigo()
+
+  const plan = usePlan()
+  const planInfo = usePlanInfo(plan.data?.id)
+  useAsegurarComidas(planInfo.data)
+  const comidas = mapaComidas(planInfo.data)
+  const agregar = useAgregarAlimento(plan.data?.id, fecha)
+
+  const mealOptions = useMemo(
+    () => MEAL_NAMES.flatMap((n) => { const m = comidas.get(n); return m ? [{ id: m.id, nombre: n }] : [] }),
+    [comidas],
+  )
+  const mealId = mealIdManual ?? mealParam ?? mealOptions[0]?.id ?? ''
+
+  const favoritosIds = useMemo(() => new Set(favoritos.map((f) => f.id)), [favoritos])
+  const detectorDisponible = obtenerBarcodeDetector() !== null
+
+  function abrirSheet(a: Alimento) {
+    setSeleccionado(a)
+    setGramos(100)
+    setErrorCodigo(null)
+  }
+
+  function alDetectarCodigo(codigo: string) {
+    setEscanerAbierto(false)
+    porCodigo.mutate(codigo, {
+      onSuccess: (ing) => {
+        if (ing) abrirSheet(ing)
+        else setErrorCodigo(`No se encontro ningun alimento con el codigo ${codigo}.`)
+      },
+    })
+  }
+
+  function alternarFav() {
+    if (!seleccionado) return
+    setFavoritos(alternarFavorito(seleccionado))
+  }
+
+  function confirmarAnadir() {
+    if (!seleccionado || !mealId || gramos <= 0) return
+    agregar.mutate(
+      { meal: mealId, ingredient: seleccionado.id, amount: gramos },
+      {
+        onSuccess: () => {
+          setRecientes(registrarReciente(seleccionado))
+          setSeleccionado(null)
+        },
+      },
+    )
+  }
+
+  return (
+    <div className="animate-rise space-y-4">
+      <div className="flex gap-1 rounded-[14px] border border-border bg-surface p-1">
+        {(
+          [
+            { id: 'buscar', label: 'Buscar' },
+            { id: 'recientes', label: 'Recientes' },
+            { id: 'favoritos', label: 'Favoritos' },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`flex-1 rounded-[10px] px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+              pestana === t.id ? 'bg-accent/15 text-accent' : 'text-fg-muted hover:text-fg'
+            }`}
+            onClick={() => setPestana(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {pestana === 'buscar' ? (
+        <>
+          <div className="relative">
+            <Search
+              size={16}
+              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-fg-subtle"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              className="h-12 w-full rounded-[14px] border border-border bg-surface-2 pl-10 pr-12 text-fg placeholder:text-fg-subtle transition-colors focus:border-primary"
+              placeholder="Buscar alimento (pollo, arroz, manzana...)"
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+            />
+            {detectorDisponible ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-fg"
+                aria-label="Escanear codigo de barras"
+                onClick={() => setEscanerAbierto(true)}
+              >
+                <ScanBarcode size={18} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+
+          {errorCodigo ? <p className="text-sm text-danger">{errorCodigo}</p> : null}
+
+          {debounced.trim().length < 2 ? (
+            <p className="py-8 text-center text-sm text-fg-subtle">Escribe al menos 2 letras para buscar.</p>
+          ) : busqueda.isLoading ? (
+            <SkeletonList rows={5} height="h-16" />
+          ) : busqueda.isError ? (
+            <ErrorState onRetry={() => busqueda.refetch()} />
+          ) : (busqueda.data ?? []).length === 0 ? (
+            <p className="py-8 text-center text-sm text-fg-subtle">Sin resultados para "{debounced}".</p>
+          ) : (
+            <ListaAlimentos alimentos={busqueda.data ?? []} favoritosIds={favoritosIds} onElegir={abrirSheet} />
+          )}
+        </>
+      ) : pestana === 'recientes' ? (
+        recientes.length === 0 ? (
+          <EmptyState
+            icon={Clock}
+            title="Sin alimentos recientes"
+            description="Lo que registres en el diario aparecera aqui para anadirlo mas rapido la proxima vez."
+          />
+        ) : (
+          <ListaAlimentos alimentos={recientes} favoritosIds={favoritosIds} onElegir={abrirSheet} />
+        )
+      ) : favoritos.length === 0 ? (
+        <EmptyState
+          icon={Star}
+          title="Sin favoritos"
+          description="Marca alimentos con la estrella para tenerlos siempre a mano."
+        />
+      ) : (
+        <ListaAlimentos alimentos={favoritos} favoritosIds={favoritosIds} onElegir={abrirSheet} />
+      )}
+
+      {seleccionado ? (
+        <HojaAlimento
+          alimento={seleccionado}
+          gramos={gramos}
+          onGramos={setGramos}
+          mealOptions={mealOptions}
+          mealId={mealId}
+          onMeal={setMealIdManual}
+          esFavorito={favoritosIds.has(seleccionado.id)}
+          onFavorito={alternarFav}
+          anadiendo={agregar.isPending}
+          onAnadir={confirmarAnadir}
+          onCerrar={() => setSeleccionado(null)}
+        />
+      ) : null}
+
+      {escanerAbierto ? (
+        <EscanerCodigoBarras onDetectado={alDetectarCodigo} onCerrar={() => setEscanerAbierto(false)} />
+      ) : null}
+    </div>
+  )
+}
