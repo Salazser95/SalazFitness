@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Copy, Pencil, Trash2 } from 'lucide-react'
 
-import { Button, Card, ConfirmModal, ErrorState, SectionLabel, SkeletonList } from '../../components/ui'
+import { Button, Card, ConfirmModal, ErrorState, SectionLabel, SkeletonList, Thumbnail } from '../../components/ui'
 import { eur, int, num } from '../../lib/format'
 import { centimosAEur, eurosACentimos, repartirProporcional } from './calculo'
+import { RecetaIlustracion } from './componentes/RecetaIlustracion'
 import {
   useDuplicarReceta,
   useEliminarReceta,
@@ -117,6 +118,12 @@ export default function RecetaDetalle() {
         {duplicar.isError ? <p className="text-sm text-danger">No se pudo duplicar la receta.</p> : null}
         {eliminar.isError ? <p className="text-sm text-danger">No se pudo eliminar la receta.</p> : null}
       </div>
+
+      {receta.data.image ? (
+        <Thumbnail src={receta.data.image} alt={receta.data.name} className="aspect-video" />
+      ) : (
+        <RecetaIlustracion className="aspect-video" iconSize={48} />
+      )}
 
       <Card>
         <p className="font-display text-2xl text-fg">{receta.data.name}</p>

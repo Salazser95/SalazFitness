@@ -13,7 +13,8 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, fetchAll, type Paginated } from '../../lib/api'
+import { ApiError, api, fetchAll, type Paginated } from '../../lib/api'
+import { readTokens } from '../../lib/tokens'
 import { today } from '../../lib/format'
 import { costeIngredienteCentimos, eurosACentimos, repartoCompra, sumarCentimos } from './calculo'
 import type {
@@ -677,6 +678,48 @@ export function useActualizarReceta() {
   })
 }
 
+/**
+ * Sube la foto de una receta. `api.patch` de lib/api.ts siempre manda JSON:
+ * para subir un fichero hace falta `multipart/form-data`, que el navegador
+ * construye solo a partir de un `FormData` (no forzar el Content-Type a
+ * mano, o pierde el boundary). Mismo patron que
+ * `useUploadGalleryPhoto` en features/yo/api.ts: fetch directo con la
+ * cabecera Authorization sacada de readTokens(), y ApiError en el fallo
+ * para que la UI lo trate igual que cualquier otro error.
+ */
+export function useSubirFotoReceta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, file }: { id: number; file: File }) => {
+      const tokens = readTokens()
+      const body = new FormData()
+      body.append('image', file)
+
+      const res = await fetch(`${BASE}/recipe/${id}/`, {
+        method: 'PATCH',
+        headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : undefined,
+        body,
+      })
+
+      if (!res.ok) {
+        let parsed: unknown = null
+        try {
+          parsed = await res.json()
+        } catch {
+          /* respuesta sin cuerpo JSON */
+        }
+        throw new ApiError(res.status, parsed)
+      }
+
+      return (await res.json()) as Recipe
+    },
+    onSuccess: (receta) => {
+      qc.invalidateQueries({ queryKey: claves.recipe(receta.id) })
+      qc.invalidateQueries({ queryKey: claves.recipes(receta.household) })
+    },
+  })
+}
+
 /** Borra una receta entera junto con sus ingredientes. */
 export function useEliminarReceta() {
   const qc = useQueryClient()
@@ -733,6 +776,7 @@ export function useDuplicarReceta() {
         name: `${original.name} (copia)`,
         servings: original.servings,
         instructions: original.instructions,
+        image: null,
       }
       almacen.recipes.push(receta)
       for (const ri of ingredientesOriginales) {

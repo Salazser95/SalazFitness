@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Plus, Trash2 } from 'lucide-react'
+import { ImagePlus, Plus, Trash2 } from 'lucide-react'
 
-import { Button, Card, ErrorState, Field, PageTitle, SectionLabel, SkeletonList } from '../../components/ui'
+import { Button, Card, ErrorState, Field, PageTitle, SectionLabel, SkeletonList, Thumbnail } from '../../components/ui'
 import { api } from '../../lib/api'
 import { BuscadorIngrediente } from './componentes/BuscadorIngrediente'
+import { RecetaIlustracion } from './componentes/RecetaIlustracion'
 import {
   useActualizarIngredienteReceta,
   useActualizarReceta,
@@ -12,6 +13,7 @@ import {
   useEliminarIngredienteReceta,
   useRecipe,
   useRecipeIngredients,
+  useSubirFotoReceta,
 } from './datos'
 import type { NuevoIngredienteReceta } from './datos'
 import type { IngredientWger } from './tipos'
@@ -54,6 +56,8 @@ export default function RecetaFormulario() {
   const crearIngrediente = useCrearIngredienteReceta()
   const actualizarIngrediente = useActualizarIngredienteReceta()
   const eliminarIngrediente = useEliminarIngredienteReceta()
+  const subirFoto = useSubirFotoReceta()
+  const inputFotoRef = useRef<HTMLInputElement>(null)
 
   const [name, setName] = useState('')
   const [servings, setServings] = useState('1')
@@ -119,6 +123,18 @@ export default function RecetaFormulario() {
     setIngredientes((prev) => prev.map((l) => (l.tempId === tempId ? { ...l, ...cambios } : l)))
   }
 
+  /**
+   * La foto se sube al momento, en cuanto se elige el fichero (mismo patron
+   * que FotosProgreso en features/yo/YoPage.tsx): la receta ya existe (este
+   * formulario solo edita, nunca crea), asi que no hace falta esperar al
+   * "Guardar cambios" de abajo, que solo manda nombre/raciones/instrucciones.
+   */
+  function onFotoElegida(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) subirFoto.mutate({ id, file })
+    e.target.value = ''
+  }
+
   function quitarLinea(tempId: number) {
     setIngredientes((prev) => {
       if (prev.length <= 1) return prev
@@ -176,6 +192,38 @@ export default function RecetaFormulario() {
     <div className="animate-rise">
       <PageTitle>Editar receta</PageTitle>
       <form onSubmit={onSubmit} className="space-y-5">
+        <Card className="space-y-3">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Foto</SectionLabel>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => inputFotoRef.current?.click()}
+              disabled={subirFoto.isPending}
+            >
+              <ImagePlus size={16} aria-hidden="true" />
+              {subirFoto.isPending ? 'Subiendo...' : receta.data.image ? 'Cambiar foto' : 'Subir foto'}
+            </Button>
+            <input
+              ref={inputFotoRef}
+              type="file"
+              accept="image/*"
+              onChange={onFotoElegida}
+              className="hidden"
+              aria-label="Elegir foto de la receta"
+            />
+          </div>
+          {receta.data.image ? (
+            <Thumbnail src={receta.data.image} alt={receta.data.name} className="aspect-video" />
+          ) : (
+            <RecetaIlustracion className="aspect-video" iconSize={40} />
+          )}
+          {subirFoto.isError ? (
+            <p className="text-sm text-danger">No se ha podido subir la foto. Intentalo de nuevo.</p>
+          ) : null}
+        </Card>
+
         <Card className="space-y-4">
           <SectionLabel>Datos</SectionLabel>
           <Field label="Nombre" value={name} onChange={(e) => setName(e.target.value)} required />

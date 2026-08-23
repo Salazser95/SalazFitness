@@ -65,6 +65,12 @@ export type Recipe = {
   name: string
   servings: number
   instructions: string
+  /**
+   * URL de la foto de la receta, o null si no tiene. Campo anadido por el
+   * orquestador en backend/salaz/models/recipe.py (ImageField), expuesto por
+   * el serializer bajo la misma clave `image`.
+   */
+  image: string | null
 }
 
 export type RecipeIngredient = {
