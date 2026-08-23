@@ -122,6 +122,7 @@ class RecipeSerializer(serializers.ModelSerializer):
             'name',
             'servings',
             'instructions',
+            'image',
             'total_cost',
             'cost_per_serving',
             'energy',

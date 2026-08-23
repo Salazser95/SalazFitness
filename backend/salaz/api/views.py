@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from salaz.api.serializers import (
@@ -159,6 +160,10 @@ class RecipeViewSet(viewsets.ModelViewSet):
     serializer_class = RecipeSerializer
     is_private = True
     filterset_fields = ('household',)
+    # wger fija DEFAULT_PARSER_CLASSES a solo JSON; los endpoints que
+    # reciben un fichero (la foto de la receta) declaran sus propios
+    # parsers, igual que hace wger.gallery.api.views.GalleryImageViewSet.
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):

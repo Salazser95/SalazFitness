@@ -3,6 +3,10 @@ from decimal import Decimal
 from django.db import models
 
 
+def recipe_image_upload_dir(instance, filename):
+    return f'recipe-images/{instance.pk or "new"}/{filename}'
+
+
 class Recipe(models.Model):
     """A recipe belonging to a household, used to plan meals and shopping lists."""
 
@@ -14,6 +18,7 @@ class Recipe(models.Model):
     name = models.CharField(max_length=255)
     servings = models.PositiveIntegerField()
     instructions = models.TextField(blank=True, default='')
+    image = models.ImageField(upload_to=recipe_image_upload_dir, blank=True, null=True)
 
     class Meta:
         ordering = ['name']
