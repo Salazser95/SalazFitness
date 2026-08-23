@@ -29,3 +29,9 @@ db/
 Thumbs.db
 .vscode/
 .idea/
+
+# graphify: se versionan el informe, el grafo y la visualizacion.
+# Las cachés internas y el contador de coste, no.
+graphify-out/.graphify_*
+graphify-out/cost.json
+graphify-out/obsidian/
