@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   Apple,
   Dumbbell,
@@ -21,20 +22,23 @@ const Compra = lazy(() => import('./features/compra/CompraPage'))
 const Yo = lazy(() => import('./features/yo/YoPage'))
 
 // Cinco destinos como máximo en la barra inferior. Ver docs/DESIGN-SYSTEM.md.
-type Destino = { to: string; label: string; icon: LucideIcon }
+// labelKey es la clave de i18n (ver src/i18n/es-ES.json), resuelta en NavItem
+// con useTranslation para que reaccione al cambio de idioma en caliente.
+type Destino = { to: string; labelKey: string; icon: LucideIcon }
 
 const DESTINOS: Destino[] = [
-  { to: '/hoy', label: 'Hoy', icon: Flame },
-  { to: '/entreno', label: 'Entreno', icon: Dumbbell },
-  { to: '/nutricion', label: 'Nutrición', icon: Apple },
-  { to: '/compra', label: 'Compra', icon: ShoppingCart },
-  { to: '/yo', label: 'Yo', icon: User },
+  { to: '/hoy', labelKey: 'nav.hoy', icon: Flame },
+  { to: '/entreno', labelKey: 'nav.entreno', icon: Dumbbell },
+  { to: '/nutricion', labelKey: 'nav.nutricion', icon: Apple },
+  { to: '/compra', labelKey: 'nav.compra', icon: ShoppingCart },
+  { to: '/yo', labelKey: 'nav.yo', icon: User },
 ]
 
 // -------------------------------------------------------------- Login
 
 function LoginPage() {
   const { signIn, loading, error } = useAuth()
+  const { t } = useTranslation()
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -49,13 +53,11 @@ function LoginPage() {
           Salaz
         </p>
         <h1 className="mt-1 font-display text-5xl leading-none">FITNESS</h1>
-        <p className="mt-3 text-sm text-fg-muted">
-          Entrenamiento, nutrición y coste de la compra en un solo sitio.
-        </p>
+        <p className="mt-3 text-sm text-fg-muted">{t('login.subtitulo')}</p>
 
         <form onSubmit={onSubmit} className="mt-8 space-y-4">
           <Field
-            label="Usuario"
+            label={t('login.usuario')}
             name="usuario"
             autoComplete="username"
             required
@@ -63,7 +65,7 @@ function LoginPage() {
             placeholder="admin"
           />
           <Field
-            label="Contraseña"
+            label={t('login.contrasena')}
             name="clave"
             type="password"
             autoComplete="current-password"
@@ -71,13 +73,11 @@ function LoginPage() {
             error={error}
           />
           <Button type="submit" full size="lg" disabled={loading}>
-            {loading ? 'Entrando...' : 'Entrar'}
+            {loading ? t('login.entrando') : t('login.entrar')}
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-fg-subtle">
-          Se conecta a tu servidor. Tus datos no salen de tu red.
-        </p>
+        <p className="mt-6 text-center text-xs text-fg-subtle">{t('login.privacidad')}</p>
       </div>
     </main>
   )
@@ -87,6 +87,7 @@ function LoginPage() {
 
 function NavItem({ dest, vertical }: { dest: Destino; vertical: boolean }) {
   const Icon = dest.icon
+  const { t } = useTranslation()
   return (
     <NavLink
       to={dest.to}
@@ -103,7 +104,7 @@ function NavItem({ dest, vertical }: { dest: Destino; vertical: boolean }) {
         <>
           <Icon size={20} strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
           <span className={vertical ? 'text-sm font-medium' : 'text-[11px] font-medium'}>
-            {dest.label}
+            {t(dest.labelKey)}
           </span>
         </>
       )}
@@ -114,6 +115,7 @@ function NavItem({ dest, vertical }: { dest: Destino; vertical: boolean }) {
 function AppShell({ children }: { children: React.ReactNode }) {
   const { username, signOut } = useAuth()
   const { pathname } = useLocation()
+  const { t } = useTranslation()
 
   // Al cambiar de pantalla, arriba del todo.
   useEffect(() => {
@@ -142,7 +144,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
             className="mt-2 flex h-11 w-full items-center gap-2 rounded-[14px] px-4 text-sm text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg"
           >
             <LogOut size={18} aria-hidden="true" />
-            Salir
+            {t('nav.salir')}
           </button>
         </div>
       </aside>

@@ -1,0 +1,43 @@
+{
+  "_nota": "English dictionary for the i18n infrastructure (i18next + react-i18next). Mirrors the same key tree as es-ES.json. Covers navigation, login and the Ajustes tab of Yo for now; the rest of the app still has fixed Spanish text and can be migrated to this system progressively.",
+  "nav": {
+    "hoy": "Today",
+    "entreno": "Training",
+    "nutricion": "Nutrition",
+    "compra": "Shopping",
+    "yo": "Me",
+    "salir": "Log out"
+  },
+  "login": {
+    "subtitulo": "Training, nutrition and shopping cost, all in one place.",
+    "usuario": "Username",
+    "contrasena": "Password",
+    "entrando": "Signing in...",
+    "entrar": "Sign in",
+    "privacidad": "Connects to your own server. Your data never leaves your network."
+  },
+  "ajustes": {
+    "ejercicios": {
+      "titulo": "Exercises",
+      "mostrarMedia": "Show exercise videos and images",
+      "mostrarMediaHint": "Turn it off for a simpler training screen."
+    },
+    "compra": {
+      "titulo": "Shopping",
+      "supermercadoDefecto": "Default supermarket",
+      "otro": "Other",
+      "nombreSupermercado": "Supermarket name",
+      "nombreSupermercadoPlaceholder": "e.g. Eroski"
+    },
+    "datos": {
+      "titulo": "Data",
+      "descripcion": "Download a copy of your profile and weight goal as a JSON file.",
+      "exportar": "Export data"
+    },
+    "idioma": {
+      "titulo": "Language",
+      "etiqueta": "Application language",
+      "hint": "Changes the language of the navigation, sign-in screen and these settings. The rest of the app will be translated progressively."
+    }
+  }
+}

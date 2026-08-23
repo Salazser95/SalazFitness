@@ -12,7 +12,9 @@ import {
   YAxis,
 } from 'recharts'
 import { Camera, Download, LogOut, Plus, Ruler, Scale, Trash2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
+import { CLAVE_IDIOMA, IDIOMAS_DISPONIBLES } from '../../i18n'
 import {
   Button,
   Card,
@@ -849,6 +851,7 @@ function MedidasTab() {
 // ------------------------------------------------------------------ Ajustes
 
 function AjustesTab() {
+  const { t, i18n } = useTranslation()
   const { mostrarMediaEjercicios, setMostrarMediaEjercicios, supermercadoDefecto, setSupermercadoDefecto } =
     useAjustes()
   const profileQ = useUserProfile()
@@ -865,6 +868,11 @@ function AjustesTab() {
   function onCambiarTextoOtro(valor: string) {
     setTextoOtro(valor)
     setSupermercadoDefecto(valor.trim())
+  }
+
+  function onCambiarIdioma(codigo: string) {
+    void i18n.changeLanguage(codigo)
+    localStorage.setItem(CLAVE_IDIOMA, codigo)
   }
 
   function exportarDatos() {
@@ -887,19 +895,35 @@ function AjustesTab() {
   return (
     <div className="space-y-5">
       <Card>
-        <SectionLabel>Ejercicios</SectionLabel>
+        <SectionLabel>{t('ajustes.idioma.titulo')}</SectionLabel>
+        <SelectField
+          label={t('ajustes.idioma.etiqueta')}
+          hint={t('ajustes.idioma.hint')}
+          value={i18n.language}
+          onChange={(e) => onCambiarIdioma(e.target.value)}
+        >
+          {IDIOMAS_DISPONIBLES.map((idioma) => (
+            <option key={idioma.codigo} value={idioma.codigo}>
+              {idioma.etiqueta}
+            </option>
+          ))}
+        </SelectField>
+      </Card>
+
+      <Card>
+        <SectionLabel>{t('ajustes.ejercicios.titulo')}</SectionLabel>
         <ToggleField
-          label="Mostrar videos e imagenes de ejercicios"
-          hint="Desactivalo si prefieres una pantalla de entreno mas simple."
+          label={t('ajustes.ejercicios.mostrarMedia')}
+          hint={t('ajustes.ejercicios.mostrarMediaHint')}
           checked={mostrarMediaEjercicios}
           onChange={setMostrarMediaEjercicios}
         />
       </Card>
 
       <Card>
-        <SectionLabel>Compra</SectionLabel>
+        <SectionLabel>{t('ajustes.compra.titulo')}</SectionLabel>
         <SelectField
-          label="Supermercado por defecto"
+          label={t('ajustes.compra.supermercadoDefecto')}
           value={seleccionSuper}
           onChange={(e) => onCambiarSeleccion(e.target.value)}
         >
@@ -908,12 +932,12 @@ function AjustesTab() {
               {s}
             </option>
           ))}
-          <option value={OTRO_SUPERMERCADO}>{OTRO_SUPERMERCADO}</option>
+          <option value={OTRO_SUPERMERCADO}>{t('ajustes.compra.otro')}</option>
         </SelectField>
         {seleccionSuper === OTRO_SUPERMERCADO ? (
           <Field
-            label="Nombre del supermercado"
-            placeholder="p.ej. Eroski"
+            label={t('ajustes.compra.nombreSupermercado')}
+            placeholder={t('ajustes.compra.nombreSupermercadoPlaceholder')}
             value={textoOtro}
             onChange={(e) => onCambiarTextoOtro(e.target.value)}
             className="mt-4"
@@ -922,10 +946,8 @@ function AjustesTab() {
       </Card>
 
       <Card>
-        <SectionLabel>Datos</SectionLabel>
-        <p className="text-sm text-fg-muted">
-          Descarga una copia de tu perfil y tu objetivo de peso en un fichero JSON.
-        </p>
+        <SectionLabel>{t('ajustes.datos.titulo')}</SectionLabel>
+        <p className="text-sm text-fg-muted">{t('ajustes.datos.descripcion')}</p>
         <Button
           type="button"
           variant="secondary"
@@ -934,7 +956,7 @@ function AjustesTab() {
           disabled={!profileQ.data}
         >
           <Download size={18} aria-hidden="true" />
-          Exportar datos
+          {t('ajustes.datos.exportar')}
         </Button>
       </Card>
     </div>

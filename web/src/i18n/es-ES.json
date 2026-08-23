@@ -1,0 +1,43 @@
+{
+  "_nota": "Diccionario de textos en español de España para la infraestructura de i18n (i18next + react-i18next). Cubre por ahora la navegación, el login y la pestaña Ajustes de Yo. El resto de la aplicación (Entreno, Nutrición, Compra, y las demás pestañas de Yo) sigue con texto fijo en español y se puede ir migrando a este sistema progresivamente, sin rehacer nada de lo que ya hay aquí.",
+  "nav": {
+    "hoy": "Hoy",
+    "entreno": "Entreno",
+    "nutricion": "Nutrición",
+    "compra": "Compra",
+    "yo": "Yo",
+    "salir": "Salir"
+  },
+  "login": {
+    "subtitulo": "Entrenamiento, nutrición y coste de la compra en un solo sitio.",
+    "usuario": "Usuario",
+    "contrasena": "Contraseña",
+    "entrando": "Entrando...",
+    "entrar": "Entrar",
+    "privacidad": "Se conecta a tu servidor. Tus datos no salen de tu red."
+  },
+  "ajustes": {
+    "ejercicios": {
+      "titulo": "Ejercicios",
+      "mostrarMedia": "Mostrar vídeos e imágenes de ejercicios",
+      "mostrarMediaHint": "Desactívalo si prefieres una pantalla de entreno más simple."
+    },
+    "compra": {
+      "titulo": "Compra",
+      "supermercadoDefecto": "Supermercado por defecto",
+      "otro": "Otro",
+      "nombreSupermercado": "Nombre del supermercado",
+      "nombreSupermercadoPlaceholder": "p.ej. Eroski"
+    },
+    "datos": {
+      "titulo": "Datos",
+      "descripcion": "Descarga una copia de tu perfil y tu objetivo de peso en un fichero JSON.",
+      "exportar": "Exportar datos"
+    },
+    "idioma": {
+      "titulo": "Idioma",
+      "etiqueta": "Idioma de la aplicación",
+      "hint": "Cambia el idioma de la navegación, el inicio de sesión y estos ajustes. El resto de la app se traducirá progresivamente."
+    }
+  }
+}
