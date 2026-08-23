@@ -25,8 +25,8 @@ function RecetaFila({ recipe }: { recipe: Recipe }) {
         </div>
         {coste.data ? (
           <p className="mt-2 text-sm text-fg-muted">
-            {int(coste.data.energy)} kcal · {num(coste.data.protein)} g proteina · {num(coste.data.carbohydrates)} g hidratos ·{' '}
-            {num(coste.data.fat)} g grasa
+            {int(coste.data.macros_per_serving.energy)} kcal · {num(coste.data.macros_per_serving.protein)} g proteina ·{' '}
+            {num(coste.data.macros_per_serving.carbohydrates)} g hidratos · {num(coste.data.macros_per_serving.fat)} g grasa
           </p>
         ) : null}
       </Card>

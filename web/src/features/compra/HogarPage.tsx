@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Scale } from 'lucide-react'
+import { Scale, Trash2 } from 'lucide-react'
 
-import { Button, Card, ErrorState, Field, SectionLabel, SkeletonList } from '../../components/ui'
+import { Button, Card, ConfirmModal, ErrorState, Field, SectionLabel, SkeletonList } from '../../components/ui'
 import { num } from '../../lib/format'
 import { repartirPartesIguales, sumaDeReparteBien } from './calculo'
-import { useActualizarReparto, useHousehold } from './datos'
+import { useActualizarReparto, useEliminarMiembro, useHousehold } from './datos'
+import type { HouseholdMember } from './tipos'
 
 function aNumero(texto: string | undefined): number {
   return Number(String(texto ?? '0').replace(',', '.')) || 0
@@ -13,8 +14,10 @@ function aNumero(texto: string | undefined): number {
 export default function HogarPage() {
   const household = useHousehold()
   const actualizar = useActualizarReparto()
+  const eliminar = useEliminarMiembro()
 
   const [porcentajes, setPorcentajes] = useState<Record<number, string>>({})
+  const [aBorrar, setABorrar] = useState<HouseholdMember | null>(null)
 
   // Sincroniza el estado local con lo que llega del servidor, tanto en la
   // carga inicial como despues de guardar.
@@ -44,6 +47,11 @@ export default function HogarPage() {
     )
   }
 
+  function onEliminarMiembro() {
+    if (!aBorrar) return
+    eliminar.mutate(aBorrar.id)
+  }
+
   if (household.isLoading) return <SkeletonList rows={3} height="h-20" />
   if (household.isError || !household.data) return <ErrorState onRetry={() => household.refetch()} />
 
@@ -59,14 +67,23 @@ export default function HogarPage() {
 
       <div className="space-y-3">
         {miembros.map((m) => (
-          <Card key={m.id}>
+          <Card key={m.id} className="flex items-end gap-2">
             <Field
               label={m.name}
               inputMode="decimal"
               value={porcentajes[m.id] ?? ''}
               onChange={(e) => cambiarPorcentaje(m.id, e.target.value)}
               hint="Puntos porcentuales de consumo (0-100)"
+              className="flex-1"
             />
+            <button
+              type="button"
+              aria-label={`Eliminar a ${m.name} del hogar`}
+              onClick={() => setABorrar(m)}
+              className="mb-1.5 flex h-12 w-12 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
+            >
+              <Trash2 size={18} aria-hidden="true" />
+            </button>
           </Card>
         ))}
       </div>
@@ -78,10 +95,23 @@ export default function HogarPage() {
       </Card>
 
       {actualizar.isError ? <p className="text-sm text-danger">No se pudo guardar el reparto.</p> : null}
+      {eliminar.isError ? <p className="text-sm text-danger">No se pudo eliminar el miembro.</p> : null}
 
       <Button full disabled={!sumaOk || actualizar.isPending} onClick={guardar}>
         {actualizar.isPending ? 'Guardando...' : 'Guardar reparto'}
       </Button>
+
+      <ConfirmModal
+        open={aBorrar !== null}
+        onClose={() => setABorrar(null)}
+        onConfirm={onEliminarMiembro}
+        title="Eliminar miembro del hogar"
+        description={
+          aBorrar
+            ? `Se eliminara a ${aBorrar.name} y su reparto de gasto (${num(aBorrar.consumption_share)}%). Esta accion no se puede deshacer.`
+            : undefined
+        }
+      />
     </div>
   )
 }

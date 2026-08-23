@@ -1,18 +1,24 @@
-import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, CalendarDays, Store, User, Users } from 'lucide-react'
+import { useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, CalendarDays, Copy, Pencil, Store, Trash2, User, Users } from 'lucide-react'
 
-import { Card, ErrorState, SectionLabel, SkeletonList, StatCard } from '../../components/ui'
+import { Button, Card, ConfirmModal, ErrorState, SectionLabel, SkeletonList, StatCard } from '../../components/ui'
 import { eur, num, shortDate } from '../../lib/format'
 import { centimosAEur, costeDiarioPorPersona, eurosACentimos } from './calculo'
-import { usePurchase, usePurchaseBreakdown, usePurchaseItems } from './datos'
+import { useDuplicarCompra, useEliminarCompra, usePurchase, usePurchaseBreakdown, usePurchaseItems } from './datos'
 
 export default function CompraDetalle() {
+  const navigate = useNavigate()
   const { id: idParam } = useParams<{ id: string }>()
   const id = Number(idParam) || 0
 
   const compra = usePurchase(id)
   const lineas = usePurchaseItems(id)
   const breakdown = usePurchaseBreakdown(id)
+  const eliminar = useEliminarCompra()
+  const duplicar = useDuplicarCompra()
+
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false)
 
   const cargando = compra.isLoading || lineas.isLoading || breakdown.isLoading
   const error = compra.isError || lineas.isError || breakdown.isError
@@ -39,15 +45,53 @@ export default function CompraDetalle() {
   const quincenal = centimosAEur(costeDiaCentimos * 14)
   const mensual = centimosAEur(costeDiaCentimos * 30)
 
+  function onDuplicar() {
+    duplicar.mutate(id, { onSuccess: (nueva) => navigate(`/compra/compras/${nueva.id}`) })
+  }
+
+  function onEliminar() {
+    if (!compra.data) return
+    eliminar.mutate(
+      { id, household: compra.data.household },
+      { onSuccess: () => navigate('/compra/compras') },
+    )
+  }
+
   return (
     <div className="animate-rise space-y-5">
-      <Link
-        to="/compra/compras"
-        className="inline-flex items-center gap-1 text-sm text-fg-muted transition-colors hover:text-fg"
-      >
-        <ArrowLeft size={16} aria-hidden="true" />
-        Volver a compras
-      </Link>
+      <div className="space-y-3">
+        <Link
+          to="/compra/compras"
+          className="inline-flex items-center gap-1 text-sm text-fg-muted transition-colors hover:text-fg"
+        >
+          <ArrowLeft size={16} aria-hidden="true" />
+          Volver a compras
+        </Link>
+
+        <div className="grid grid-cols-3 gap-2">
+          <Button size="sm" variant="secondary" onClick={() => navigate(`/compra/compras/${id}/editar`)}>
+            <Pencil size={16} aria-hidden="true" />
+            Editar
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onDuplicar}
+            disabled={duplicar.isPending}
+            aria-label="Repetir esta compra"
+          >
+            <Copy size={16} aria-hidden="true" />
+            {duplicar.isPending ? 'Repitiendo...' : 'Repetir'}
+          </Button>
+          <Button size="sm" variant="danger" onClick={() => setConfirmarBorrado(true)} disabled={eliminar.isPending}>
+            <Trash2 size={16} aria-hidden="true" />
+            Eliminar
+          </Button>
+        </div>
+
+        {duplicar.isError ? <p className="text-sm text-danger">No se pudo repetir la compra.</p> : null}
+        {eliminar.isError ? <p className="text-sm text-danger">No se pudo eliminar la compra.</p> : null}
+      </div>
 
       <Card>
         <p className="font-display text-2xl text-fg">{compra.data.description}</p>
@@ -95,6 +139,9 @@ export default function CompraDetalle() {
             </li>
           ))}
         </ul>
+        <p className="mt-2 text-xs text-fg-subtle">
+          Para anadir, editar o quitar lineas, usa "Editar" arriba.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -142,6 +189,14 @@ export default function CompraDetalle() {
           </div>
         </div>
       </Card>
+
+      <ConfirmModal
+        open={confirmarBorrado}
+        onClose={() => setConfirmarBorrado(false)}
+        onConfirm={onEliminar}
+        title="Eliminar compra"
+        description="Se borraran tambien todas sus lineas. Esta accion no se puede deshacer."
+      />
     </div>
   )
 }

@@ -1,27 +1,19 @@
-import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
+import { useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, Copy, Pencil, Trash2 } from 'lucide-react'
 
-import { Card, ErrorState, SectionLabel, SkeletonList } from '../../components/ui'
-import { api } from '../../lib/api'
+import { Button, Card, ConfirmModal, ErrorState, SectionLabel, SkeletonList } from '../../components/ui'
 import { eur, int, num } from '../../lib/format'
 import { centimosAEur, eurosACentimos, repartirProporcional } from './calculo'
-import { useRecipe, useRecipeCost, useRecipeIngredients } from './datos'
-import type { IngredientWger, RecipeIngredient } from './tipos'
-
-/**
- * Nombre del ingrediente contra el endpoint real de wger, igual que hace
- * `useBuscarIngredientesWger` en datos.ts: no depende de BACKEND_LISTO porque
- * no es parte del modulo nuevo, es la base de alimentos de wger.
- */
-function useIngredienteWger(id: number) {
-  return useQuery({
-    queryKey: ['wger', 'ingredient', id],
-    queryFn: () => api.get<IngredientWger>(`/api/v2/ingredient/${id}/`),
-    enabled: id > 0,
-    staleTime: 5 * 60_000,
-  })
-}
+import {
+  useDuplicarReceta,
+  useEliminarReceta,
+  useIngredienteWger,
+  useRecipe,
+  useRecipeCost,
+  useRecipeIngredients,
+} from './datos'
+import type { RecipeIngredient } from './tipos'
 
 function LineaIngrediente({ ri, costeCentimos }: { ri: RecipeIngredient; costeCentimos: number }) {
   const info = useIngredienteWger(ri.ingredient)
@@ -39,12 +31,17 @@ function LineaIngrediente({ ri, costeCentimos }: { ri: RecipeIngredient; costeCe
 }
 
 export default function RecetaDetalle() {
+  const navigate = useNavigate()
   const { id: idParam } = useParams<{ id: string }>()
   const id = Number(idParam) || 0
 
   const receta = useRecipe(id)
   const ingredientes = useRecipeIngredients(id)
   const coste = useRecipeCost(id)
+  const eliminar = useEliminarReceta()
+  const duplicar = useDuplicarReceta()
+
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false)
 
   const cargando = receta.isLoading || ingredientes.isLoading || coste.isLoading
   const error = receta.isError || ingredientes.isError || coste.isError
@@ -73,22 +70,61 @@ export default function RecetaDetalle() {
     lista.map((ri) => Math.max(0, ri.amount)),
   )
 
+  function onDuplicar() {
+    duplicar.mutate(id, { onSuccess: (nueva) => navigate(`/compra/recetas/${nueva.id}`) })
+  }
+
+  function onEliminar() {
+    if (!receta.data) return
+    eliminar.mutate(
+      { id, household: receta.data.household },
+      { onSuccess: () => navigate('/compra/recetas') },
+    )
+  }
+
   return (
     <div className="animate-rise space-y-5">
-      <Link
-        to="/compra/recetas"
-        className="inline-flex items-center gap-1 text-sm text-fg-muted transition-colors hover:text-fg"
-      >
-        <ArrowLeft size={16} aria-hidden="true" />
-        Volver a recetas
-      </Link>
+      <div className="space-y-3">
+        <Link
+          to="/compra/recetas"
+          className="inline-flex items-center gap-1 text-sm text-fg-muted transition-colors hover:text-fg"
+        >
+          <ArrowLeft size={16} aria-hidden="true" />
+          Volver a recetas
+        </Link>
+
+        <div className="grid grid-cols-3 gap-2">
+          <Button size="sm" variant="secondary" onClick={() => navigate(`/compra/recetas/${id}/editar`)}>
+            <Pencil size={16} aria-hidden="true" />
+            Editar
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onDuplicar}
+            disabled={duplicar.isPending}
+            aria-label="Duplicar esta receta"
+          >
+            <Copy size={16} aria-hidden="true" />
+            {duplicar.isPending ? 'Duplicando...' : 'Duplicar'}
+          </Button>
+          <Button size="sm" variant="danger" onClick={() => setConfirmarBorrado(true)} disabled={eliminar.isPending}>
+            <Trash2 size={16} aria-hidden="true" />
+            Eliminar
+          </Button>
+        </div>
+
+        {duplicar.isError ? <p className="text-sm text-danger">No se pudo duplicar la receta.</p> : null}
+        {eliminar.isError ? <p className="text-sm text-danger">No se pudo eliminar la receta.</p> : null}
+      </div>
 
       <Card>
         <p className="font-display text-2xl text-fg">{receta.data.name}</p>
         <p className="mt-1 text-sm text-fg-muted">{receta.data.servings} raciones</p>
         <p className="tnum mt-3 text-sm text-fg">
-          {int(coste.data.energy)} kcal · {num(coste.data.protein)} g proteina · {num(coste.data.carbohydrates)} g hidratos ·{' '}
-          {num(coste.data.fat)} g grasa · {eur(coste.data.cost_per_serving)}/persona
+          {int(coste.data.macros_per_serving.energy)} kcal · {num(coste.data.macros_per_serving.protein)} g proteina ·{' '}
+          {num(coste.data.macros_per_serving.carbohydrates)} g hidratos · {num(coste.data.macros_per_serving.fat)} g grasa ·{' '}
+          {eur(coste.data.cost_per_serving)}/persona
         </p>
       </Card>
 
@@ -107,6 +143,7 @@ export default function RecetaDetalle() {
         </Card>
         <p className="mt-2 text-xs text-fg-subtle">
           Coste de cada ingrediente repartido a partir del coste total real de la receta, en proporcion a su peso.
+          Para anadir, editar o quitar ingredientes, usa "Editar" arriba.
         </p>
       </div>
 
@@ -127,6 +164,14 @@ export default function RecetaDetalle() {
           <p className="text-sm leading-relaxed text-fg">{receta.data.instructions}</p>
         </Card>
       ) : null}
+
+      <ConfirmModal
+        open={confirmarBorrado}
+        onClose={() => setConfirmarBorrado(false)}
+        onConfirm={onEliminar}
+        title="Eliminar receta"
+        description="Se borraran tambien todos sus ingredientes. Esta accion no se puede deshacer."
+      />
     </div>
   )
 }

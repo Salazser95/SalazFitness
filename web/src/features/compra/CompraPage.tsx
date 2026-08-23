@@ -8,6 +8,7 @@ import CompraDetalle from './CompraDetalle'
 import ListaPage from './ListaPage'
 import RecetasPage from './RecetasPage'
 import RecetaDetalle from './RecetaDetalle'
+import RecetaFormulario from './RecetaFormulario'
 import HogarPage from './HogarPage'
 
 const PESTANAS = [
@@ -53,9 +54,11 @@ export default function CompraPage() {
         <Route path="/compras" element={<ComprasPage />} />
         <Route path="/compras/nueva" element={<CompraFormulario />} />
         <Route path="/compras/:id" element={<CompraDetalle />} />
+        <Route path="/compras/:id/editar" element={<CompraFormulario />} />
         <Route path="/lista" element={<ListaPage />} />
         <Route path="/recetas" element={<RecetasPage />} />
         <Route path="/recetas/:id" element={<RecetaDetalle />} />
+        <Route path="/recetas/:id/editar" element={<RecetaFormulario />} />
         <Route path="/hogar" element={<HogarPage />} />
       </Routes>
     </>

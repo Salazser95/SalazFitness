@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Check, ListPlus, ShoppingCart } from 'lucide-react'
+import { Check, ListPlus, ShoppingCart, Trash2 } from 'lucide-react'
 
-import { Button, Card, EmptyState, ErrorState, Field, SectionLabel, SkeletonList, StatCard } from '../../components/ui'
+import { Button, Card, ConfirmModal, EmptyState, ErrorState, Field, SectionLabel, SkeletonList, StatCard } from '../../components/ui'
 import { eur } from '../../lib/format'
+import { supermercadoDefectoActual } from '../../lib/settings'
 import { eurosACentimos, sumarCentimos } from './calculo'
 import {
   fechaPorDefectoNuevaCompra,
+  useEliminarLineaLista,
   useGenerarLista,
   useHousehold,
   useListaActiva,
@@ -13,6 +15,7 @@ import {
   useMarcarComprado,
   useRecipes,
 } from './datos'
+import type { ShoppingListItem } from './tipos'
 
 /** Suma dias a una fecha ISO YYYY-MM-DD, sin desplazarse de zona horaria. */
 function sumarDias(iso: string, dias: number): string {
@@ -48,6 +51,7 @@ export default function ListaPage() {
   const listaId = listaActiva.data?.id ?? 0
   const listaItems = useListaItems(listaId)
   const marcar = useMarcarComprado()
+  const eliminarItem = useEliminarLineaLista()
   const recetas = useRecipes(householdId)
   const generar = useGenerarLista()
 
@@ -55,6 +59,7 @@ export default function ListaPage() {
   const [fechaInicio, setFechaInicio] = useState(fechaPorDefectoNuevaCompra())
   const [fechaFin, setFechaFin] = useState(sumarDias(fechaPorDefectoNuevaCompra(), 7))
   const [recetasElegidas, setRecetasElegidas] = useState<number[]>([])
+  const [aBorrar, setABorrar] = useState<ShoppingListItem | null>(null)
 
   function alternarReceta(id: number) {
     setRecetasElegidas((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]))
@@ -70,6 +75,22 @@ export default function ListaPage() {
     })
     setRecetasElegidas([])
     setMostrarGenerador(false)
+  }
+
+  function onToggleComprado(item: ShoppingListItem) {
+    const marcando = !item.purchased
+    // Al marcar como comprado, si la linea no tiene supermercado asignado
+    // todavia, precarga el de por defecto. El usuario lo puede cambiar luego.
+    marcar.mutate({
+      id: item.id,
+      purchased: marcando,
+      ...(marcando && !item.supermarket ? { supermarket: supermercadoDefectoActual() } : {}),
+    })
+  }
+
+  function onEliminarItem() {
+    if (!aBorrar) return
+    eliminarItem.mutate({ id: aBorrar.id, shopping_list: aBorrar.shopping_list })
   }
 
   const items = listaItems.data ?? []
@@ -168,6 +189,8 @@ export default function ListaPage() {
             </span>
           </Card>
 
+          {eliminarItem.isError ? <p className="text-sm text-danger">No se pudo quitar la linea.</p> : null}
+
           <ul className="space-y-2">
             {items.map((item) => (
               <li key={item.id}>
@@ -175,7 +198,7 @@ export default function ListaPage() {
                   <Casilla
                     marcado={item.purchased}
                     ariaLabel={`Marcar ${item.name} como comprado`}
-                    onToggle={() => marcar.mutate({ id: item.id, purchased: !item.purchased })}
+                    onToggle={() => onToggleComprado(item)}
                   />
                   <div className="min-w-0 flex-1">
                     <p className={`truncate text-fg ${item.purchased ? 'line-through' : ''}`}>{item.name}</p>
@@ -188,12 +211,28 @@ export default function ListaPage() {
                     </p>
                   </div>
                   <p className="tnum shrink-0 font-medium text-fg">{eur(item.estimated_price)}</p>
+                  <button
+                    type="button"
+                    aria-label={`Quitar ${item.name} de la lista`}
+                    onClick={() => setABorrar(item)}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </button>
                 </Card>
               </li>
             ))}
           </ul>
         </>
       )}
+
+      <ConfirmModal
+        open={aBorrar !== null}
+        onClose={() => setABorrar(null)}
+        onConfirm={onEliminarItem}
+        title="Quitar de la lista"
+        description={aBorrar ? `Se quitara "${aBorrar.name}" de la lista de la compra.` : undefined}
+      />
     </div>
   )
 }

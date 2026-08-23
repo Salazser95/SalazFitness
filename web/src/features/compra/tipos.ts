@@ -144,10 +144,16 @@ export type HouseholdSummary = {
 export type RecipeCost = {
   total_cost: string
   cost_per_serving: string
-  energy: number
-  protein: number
-  carbohydrates: number
-  fat: number
+  /**
+   * Verificado contra el backend real 2026-08-23: las macros vienen anidadas
+   * bajo esta clave, no planas como se penso al escribir el contrato.
+   */
+  macros_per_serving: {
+    energy: number
+    protein: number
+    carbohydrates: number
+    fat: number
+  }
 }
 
 export type GenerarListaPayload = {

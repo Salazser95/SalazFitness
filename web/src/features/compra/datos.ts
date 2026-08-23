@@ -55,6 +55,16 @@ export function useBuscarIngredientesWger(texto: string) {
   })
 }
 
+/** Un ingrediente concreto de wger por id (siempre real, igual que la busqueda). */
+export function useIngredienteWger(id: number) {
+  return useQuery({
+    queryKey: ['wger', 'ingredient', id],
+    queryFn: () => api.get<IngredientWger>(`/api/v2/ingredient/${id}/`),
+    enabled: id > 0,
+    staleTime: 5 * 60_000,
+  })
+}
+
 // ================================================================
 // Almacen de ejemplo en memoria (BACKEND_LISTO = false)
 // ================================================================
@@ -186,6 +196,16 @@ const claves = {
   shoppingListItems: (listId: number) => ['compra', 'shopping-list-items', listId] as const,
 }
 
+// Prefijos usados para invalidar en bloque queries derivadas que no dependen
+// solo de un id (series calculadas en el cliente, resumenes, etc).
+const prefijos = {
+  summary: ['compra', 'summary'] as const,
+  gastoSemanal: ['compra', 'gasto-semanal'] as const,
+  purchasesTotal: ['compra', 'purchases-total'] as const,
+  breakdown: ['compra', 'breakdown'] as const,
+  costeMedioComida: ['compra', 'coste-medio-comida'] as const,
+}
+
 // ================================================================
 // Hogar
 // ================================================================
@@ -224,6 +244,27 @@ export function useActualizarReparto() {
       await retraso(null)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: claves.household }),
+  })
+}
+
+/** Elimina un miembro del hogar. Se lleva por delante su reparto de gasto. */
+export function useEliminarMiembro() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/household-member/${id}/`)
+        return id
+      }
+      const idx = almacen.members.findIndex((m) => m.id === id)
+      if (idx >= 0) almacen.members.splice(idx, 1)
+      return retraso(id)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: claves.household })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.breakdown })
+    },
   })
 }
 
@@ -277,7 +318,7 @@ export function usePurchaseItems(purchaseId: number) {
 export function usePurchasesConTotal(householdId: number) {
   const compras = usePurchases(householdId)
   return useQuery({
-    queryKey: ['compra', 'purchases-total', householdId, compras.data?.length ?? 0],
+    queryKey: [...prefijos.purchasesTotal, householdId, compras.data?.length ?? 0],
     queryFn: async () => {
       const lista = compras.data ?? []
       const conTotal = await Promise.all(
@@ -316,6 +357,179 @@ export function useCrearCompra() {
     onSuccess: (compra) => {
       qc.invalidateQueries({ queryKey: claves.purchases(compra.household) })
       qc.invalidateQueries({ queryKey: claves.summary(compra.household, 30) })
+    },
+  })
+}
+
+/** Cambia la cabecera de una compra ya creada (fecha, descripcion, super, dias). */
+export function useActualizarCompra() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; cambios: Partial<Omit<Purchase, 'id' | 'household'>> }) => {
+      if (BACKEND_LISTO) return api.patch<Purchase>(`${BASE}/purchase/${input.id}/`, input.cambios)
+      const compra = almacen.purchases.find((p) => p.id === input.id)
+      if (!compra) throw new Error('Compra no encontrada')
+      Object.assign(compra, input.cambios)
+      return retraso(compra)
+    },
+    onSuccess: (compra) => {
+      qc.invalidateQueries({ queryKey: claves.purchase(compra.id) })
+      qc.invalidateQueries({ queryKey: claves.purchases(compra.household) })
+      qc.invalidateQueries({ queryKey: claves.breakdown(compra.id) })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+    },
+  })
+}
+
+/** Borra una compra entera junto con todas sus lineas. */
+export function useEliminarCompra() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/purchase/${input.id}/`)
+        return input
+      }
+      const idx = almacen.purchases.findIndex((p) => p.id === input.id)
+      if (idx >= 0) almacen.purchases.splice(idx, 1)
+      for (let i = almacen.purchaseItems.length - 1; i >= 0; i--) {
+        if (almacen.purchaseItems[i]!.purchase === input.id) almacen.purchaseItems.splice(i, 1)
+      }
+      return retraso(input)
+    },
+    onSuccess: ({ id, household }) => {
+      qc.removeQueries({ queryKey: claves.purchase(id) })
+      qc.removeQueries({ queryKey: claves.purchaseItems(id) })
+      qc.removeQueries({ queryKey: claves.breakdown(id) })
+      qc.invalidateQueries({ queryKey: claves.purchases(household) })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+    },
+  })
+}
+
+/** Duplica una compra entera (cabecera + lineas) con la fecha de hoy. "Repetir esta compra". */
+export function useDuplicarCompra() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (purchaseId: number) => {
+      const original = await cargarCompra(purchaseId)
+      const lineasOriginales = await cargarLineas(purchaseId)
+
+      if (BACKEND_LISTO) {
+        const compra = await api.post<Purchase>(`${BASE}/purchase/`, {
+          household: original.household,
+          date: today(),
+          description: original.description,
+          supermarket: original.supermarket,
+          covers_days: original.covers_days,
+        })
+        await Promise.all(
+          lineasOriginales.map((linea) =>
+            api.post(`${BASE}/purchase-item/`, {
+              ingredient: linea.ingredient,
+              name: linea.name,
+              amount: linea.amount,
+              unit: linea.unit,
+              price: linea.price,
+              is_shared: linea.is_shared,
+              member: linea.member,
+              purchase: compra.id,
+            }),
+          ),
+        )
+        return compra
+      }
+
+      const id = siguienteId()
+      const compra: Purchase = {
+        id,
+        household: original.household,
+        date: today(),
+        description: original.description,
+        supermarket: original.supermarket,
+        covers_days: original.covers_days,
+      }
+      almacen.purchases.push(compra)
+      for (const linea of lineasOriginales) {
+        almacen.purchaseItems.push({ ...linea, id: siguienteId(), purchase: id })
+      }
+      return retraso(compra)
+    },
+    onSuccess: (compra) => {
+      qc.invalidateQueries({ queryKey: claves.purchases(compra.household) })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+    },
+  })
+}
+
+/** Anade una linea suelta a una compra ya creada. */
+export function useCrearLineaCompra() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { purchase: number; linea: NuevaLinea }) => {
+      if (BACKEND_LISTO) {
+        return api.post<PurchaseItem>(`${BASE}/purchase-item/`, { ...input.linea, purchase: input.purchase })
+      }
+      const item: PurchaseItem = { id: siguienteId(), purchase: input.purchase, ...input.linea }
+      almacen.purchaseItems.push(item)
+      return retraso(item)
+    },
+    onSuccess: (item) => {
+      qc.invalidateQueries({ queryKey: claves.purchaseItems(item.purchase) })
+      qc.invalidateQueries({ queryKey: claves.breakdown(item.purchase) })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+    },
+  })
+}
+
+/** Cambia una linea suelta de una compra ya creada. */
+export function useActualizarLineaCompra() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; purchase: number; cambios: Partial<NuevaLinea> }) => {
+      if (BACKEND_LISTO) return api.patch<PurchaseItem>(`${BASE}/purchase-item/${input.id}/`, input.cambios)
+      const item = almacen.purchaseItems.find((i) => i.id === input.id)
+      if (!item) throw new Error('Linea no encontrada')
+      Object.assign(item, input.cambios)
+      return retraso(item)
+    },
+    onSuccess: (item) => {
+      qc.invalidateQueries({ queryKey: claves.purchaseItems(item.purchase) })
+      qc.invalidateQueries({ queryKey: claves.breakdown(item.purchase) })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+    },
+  })
+}
+
+/** Quita una linea suelta de una compra ya creada. */
+export function useEliminarLineaCompra() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; purchase: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/purchase-item/${input.id}/`)
+        return input
+      }
+      const idx = almacen.purchaseItems.findIndex((i) => i.id === input.id)
+      if (idx >= 0) almacen.purchaseItems.splice(idx, 1)
+      return retraso(input)
+    },
+    onSuccess: ({ purchase }) => {
+      qc.invalidateQueries({ queryKey: claves.purchaseItems(purchase) })
+      qc.invalidateQueries({ queryKey: claves.breakdown(purchase) })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
     },
   })
 }
@@ -392,7 +606,7 @@ export function useHouseholdSummary(householdId: number, days: number) {
 export function useGastoSemanal(householdId: number) {
   const compras = usePurchases(householdId)
   return useQuery({
-    queryKey: ['compra', 'gasto-semanal', householdId, compras.data?.length ?? 0],
+    queryKey: [...prefijos.gastoSemanal, householdId, compras.data?.length ?? 0],
     queryFn: async () => {
       const lista = compras.data ?? []
       const porSemana = new Map<string, number>()
@@ -443,6 +657,96 @@ export function useRecipe(id: number) {
   return useQuery({ queryKey: claves.recipe(id), queryFn: () => cargarReceta(id), enabled: id > 0 })
 }
 
+/** Cambia nombre, raciones o instrucciones de una receta ya creada. */
+export function useActualizarReceta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; cambios: Partial<Omit<Recipe, 'id' | 'household'>> }) => {
+      if (BACKEND_LISTO) return api.patch<Recipe>(`${BASE}/recipe/${input.id}/`, input.cambios)
+      const receta = almacen.recipes.find((r) => r.id === input.id)
+      if (!receta) throw new Error('Receta no encontrada')
+      Object.assign(receta, input.cambios)
+      return retraso(receta)
+    },
+    onSuccess: (receta) => {
+      qc.invalidateQueries({ queryKey: claves.recipe(receta.id) })
+      qc.invalidateQueries({ queryKey: claves.recipes(receta.household) })
+      qc.invalidateQueries({ queryKey: claves.recipeCost(receta.id) })
+      qc.invalidateQueries({ queryKey: prefijos.costeMedioComida })
+    },
+  })
+}
+
+/** Borra una receta entera junto con sus ingredientes. */
+export function useEliminarReceta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/recipe/${input.id}/`)
+        return input
+      }
+      const idx = almacen.recipes.findIndex((r) => r.id === input.id)
+      if (idx >= 0) almacen.recipes.splice(idx, 1)
+      for (let i = almacen.recipeIngredients.length - 1; i >= 0; i--) {
+        if (almacen.recipeIngredients[i]!.recipe === input.id) almacen.recipeIngredients.splice(i, 1)
+      }
+      return retraso(input)
+    },
+    onSuccess: ({ id, household }) => {
+      qc.removeQueries({ queryKey: claves.recipe(id) })
+      qc.removeQueries({ queryKey: claves.recipeIngredients(id) })
+      qc.removeQueries({ queryKey: claves.recipeCost(id) })
+      qc.invalidateQueries({ queryKey: claves.recipes(household) })
+      qc.invalidateQueries({ queryKey: prefijos.costeMedioComida })
+    },
+  })
+}
+
+/** Duplica una receta con sus ingredientes. Nombre "<original> (copia)". */
+export function useDuplicarReceta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (recipeId: number) => {
+      const original = await cargarReceta(recipeId)
+      const ingredientesOriginales = await cargarIngredientesReceta(recipeId)
+
+      if (BACKEND_LISTO) {
+        const receta = await api.post<Recipe>(`${BASE}/recipe/`, {
+          household: original.household,
+          name: `${original.name} (copia)`,
+          servings: original.servings,
+          instructions: original.instructions,
+        })
+        await Promise.all(
+          ingredientesOriginales.map((ri) =>
+            api.post(`${BASE}/recipe-ingredient/`, { ingredient: ri.ingredient, amount: ri.amount, recipe: receta.id }),
+          ),
+        )
+        return receta
+      }
+
+      const id = siguienteId()
+      const receta: Recipe = {
+        id,
+        household: original.household,
+        name: `${original.name} (copia)`,
+        servings: original.servings,
+        instructions: original.instructions,
+      }
+      almacen.recipes.push(receta)
+      for (const ri of ingredientesOriginales) {
+        almacen.recipeIngredients.push({ id: siguienteId(), recipe: id, ingredient: ri.ingredient, amount: ri.amount })
+      }
+      return retraso(receta)
+    },
+    onSuccess: (receta) => {
+      qc.invalidateQueries({ queryKey: claves.recipes(receta.household) })
+      qc.invalidateQueries({ queryKey: prefijos.costeMedioComida })
+    },
+  })
+}
+
 async function cargarIngredientesReceta(recipeId: number): Promise<RecipeIngredient[]> {
   if (BACKEND_LISTO) return fetchAll<RecipeIngredient>(`${BASE}/recipe-ingredient/?recipe=${recipeId}`)
   return retraso(almacen.recipeIngredients.filter((ri) => ri.recipe === recipeId))
@@ -453,6 +757,68 @@ export function useRecipeIngredients(recipeId: number) {
     queryKey: claves.recipeIngredients(recipeId),
     queryFn: () => cargarIngredientesReceta(recipeId),
     enabled: recipeId > 0,
+  })
+}
+
+export type NuevoIngredienteReceta = Omit<RecipeIngredient, 'id' | 'recipe'>
+
+/** Anade un ingrediente a una receta ya creada. */
+export function useCrearIngredienteReceta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { recipe: number; ingrediente: NuevoIngredienteReceta }) => {
+      if (BACKEND_LISTO) {
+        return api.post<RecipeIngredient>(`${BASE}/recipe-ingredient/`, { ...input.ingrediente, recipe: input.recipe })
+      }
+      const ri: RecipeIngredient = { id: siguienteId(), recipe: input.recipe, ...input.ingrediente }
+      almacen.recipeIngredients.push(ri)
+      return retraso(ri)
+    },
+    onSuccess: (ri) => {
+      qc.invalidateQueries({ queryKey: claves.recipeIngredients(ri.recipe) })
+      qc.invalidateQueries({ queryKey: claves.recipeCost(ri.recipe) })
+      qc.invalidateQueries({ queryKey: prefijos.costeMedioComida })
+    },
+  })
+}
+
+/** Cambia el ingrediente o la cantidad de una linea de receta ya creada. */
+export function useActualizarIngredienteReceta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; recipe: number; cambios: Partial<NuevoIngredienteReceta> }) => {
+      if (BACKEND_LISTO) return api.patch<RecipeIngredient>(`${BASE}/recipe-ingredient/${input.id}/`, input.cambios)
+      const ri = almacen.recipeIngredients.find((r) => r.id === input.id)
+      if (!ri) throw new Error('Ingrediente no encontrado')
+      Object.assign(ri, input.cambios)
+      return retraso(ri)
+    },
+    onSuccess: (ri) => {
+      qc.invalidateQueries({ queryKey: claves.recipeIngredients(ri.recipe) })
+      qc.invalidateQueries({ queryKey: claves.recipeCost(ri.recipe) })
+      qc.invalidateQueries({ queryKey: prefijos.costeMedioComida })
+    },
+  })
+}
+
+/** Quita un ingrediente de una receta ya creada. */
+export function useEliminarIngredienteReceta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; recipe: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/recipe-ingredient/${input.id}/`)
+        return input
+      }
+      const idx = almacen.recipeIngredients.findIndex((r) => r.id === input.id)
+      if (idx >= 0) almacen.recipeIngredients.splice(idx, 1)
+      return retraso(input)
+    },
+    onSuccess: ({ recipe }) => {
+      qc.invalidateQueries({ queryKey: claves.recipeIngredients(recipe) })
+      qc.invalidateQueries({ queryKey: claves.recipeCost(recipe) })
+      qc.invalidateQueries({ queryKey: prefijos.costeMedioComida })
+    },
   })
 }
 
@@ -483,10 +849,12 @@ async function cargarCosteReceta(id: number): Promise<RecipeCost> {
   return retraso({
     total_cost: (totalCentimos / 100).toFixed(2),
     cost_per_serving: (totalCentimos / raciones / 100).toFixed(2),
-    energy: Math.round(energy / raciones),
-    protein: Math.round((protein / raciones) * 10) / 10,
-    carbohydrates: Math.round((carbohydrates / raciones) * 10) / 10,
-    fat: Math.round((fat / raciones) * 10) / 10,
+    macros_per_serving: {
+      energy: Math.round(energy / raciones),
+      protein: Math.round((protein / raciones) * 10) / 10,
+      carbohydrates: Math.round((carbohydrates / raciones) * 10) / 10,
+      fat: Math.round((fat / raciones) * 10) / 10,
+    },
   })
 }
 
@@ -561,6 +929,25 @@ export function useMarcarComprado() {
     },
     onSuccess: (item) => {
       qc.invalidateQueries({ queryKey: claves.shoppingListItems(item.shopping_list) })
+    },
+  })
+}
+
+/** Quita una linea de la lista de la compra activa. */
+export function useEliminarLineaLista() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; shopping_list: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/shopping-list-item/${input.id}/`)
+        return input
+      }
+      const idx = almacen.shoppingListItems.findIndex((i) => i.id === input.id)
+      if (idx >= 0) almacen.shoppingListItems.splice(idx, 1)
+      return retraso(input)
+    },
+    onSuccess: ({ shopping_list }) => {
+      qc.invalidateQueries({ queryKey: claves.shoppingListItems(shopping_list) })
     },
   })
 }

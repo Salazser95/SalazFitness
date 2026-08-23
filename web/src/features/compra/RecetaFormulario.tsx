@@ -1,0 +1,262 @@
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Plus, Trash2 } from 'lucide-react'
+
+import { Button, Card, ErrorState, Field, PageTitle, SectionLabel, SkeletonList } from '../../components/ui'
+import { api } from '../../lib/api'
+import { BuscadorIngrediente } from './componentes/BuscadorIngrediente'
+import {
+  useActualizarIngredienteReceta,
+  useActualizarReceta,
+  useCrearIngredienteReceta,
+  useEliminarIngredienteReceta,
+  useRecipe,
+  useRecipeIngredients,
+} from './datos'
+import type { NuevoIngredienteReceta } from './datos'
+import type { IngredientWger } from './tipos'
+
+type IngredienteForm = {
+  tempId: number
+  /** Id real en el backend. Si falta, es una linea nueva que aun no existe. */
+  id?: number
+  ingredientId: number | null
+  name: string
+  amount: string
+}
+
+let contadorLocal = 0
+function nuevoIngrediente(): IngredienteForm {
+  contadorLocal += 1
+  return { tempId: contadorLocal, ingredientId: null, name: '', amount: '' }
+}
+
+function ingredienteAPayload(l: IngredienteForm): NuevoIngredienteReceta {
+  return {
+    ingredient: l.ingredientId as number,
+    amount: Number(String(l.amount).replace(',', '.')) || 0,
+  }
+}
+
+/**
+ * Edicion de una receta ya creada: nombre, raciones, instrucciones e
+ * ingredientes. No hay pantalla de "nueva receta" (no la pidio el encargo,
+ * las recetas de ejemplo ya vienen creadas).
+ */
+export default function RecetaFormulario() {
+  const navigate = useNavigate()
+  const { id: idParam } = useParams<{ id: string }>()
+  const id = Number(idParam) || 0
+
+  const receta = useRecipe(id)
+  const ingredientesExistentes = useRecipeIngredients(id)
+  const actualizar = useActualizarReceta()
+  const crearIngrediente = useCrearIngredienteReceta()
+  const actualizarIngrediente = useActualizarIngredienteReceta()
+  const eliminarIngrediente = useEliminarIngredienteReceta()
+
+  const [name, setName] = useState('')
+  const [servings, setServings] = useState('1')
+  const [instructions, setInstructions] = useState('')
+  const [ingredientes, setIngredientes] = useState<IngredienteForm[]>([])
+  const [eliminados, setEliminados] = useState<number[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [listo, setListo] = useState(false)
+  const cargadoRef = useRef(false)
+
+  // Precarga el formulario una sola vez, resolviendo el nombre de cada
+  // ingrediente contra wger (RecipeIngredient solo guarda el id, no el
+  // nombre). No se repite al refrescar para no pisar lo que el usuario
+  // este escribiendo.
+  useEffect(() => {
+    if (cargadoRef.current) return
+    if (!receta.data || !ingredientesExistentes.data) return
+    let cancelado = false
+
+    async function cargar() {
+      setName(receta.data!.name)
+      setServings(String(receta.data!.servings))
+      setInstructions(receta.data!.instructions)
+
+      const lista = ingredientesExistentes.data!
+      if (lista.length === 0) {
+        if (!cancelado) {
+          setIngredientes([nuevoIngrediente()])
+          cargadoRef.current = true
+          setListo(true)
+        }
+        return
+      }
+
+      const conNombre = await Promise.all(
+        lista.map(async (ri) => {
+          let nombre = `Ingrediente #${ri.ingredient}`
+          try {
+            const info = await api.get<IngredientWger>(`/api/v2/ingredient/${ri.ingredient}/`)
+            nombre = info.name
+          } catch {
+            /* si falla la busqueda del nombre, se deja el generico */
+          }
+          contadorLocal += 1
+          return { tempId: contadorLocal, id: ri.id, ingredientId: ri.ingredient, name: nombre, amount: String(ri.amount) }
+        }),
+      )
+
+      if (!cancelado) {
+        setIngredientes(conNombre)
+        cargadoRef.current = true
+        setListo(true)
+      }
+    }
+
+    cargar()
+    return () => {
+      cancelado = true
+    }
+  }, [receta.data, ingredientesExistentes.data])
+
+  function actualizarLinea(tempId: number, cambios: Partial<IngredienteForm>) {
+    setIngredientes((prev) => prev.map((l) => (l.tempId === tempId ? { ...l, ...cambios } : l)))
+  }
+
+  function quitarLinea(tempId: number) {
+    setIngredientes((prev) => {
+      if (prev.length <= 1) return prev
+      const linea = prev.find((l) => l.tempId === tempId)
+      if (linea?.id) setEliminados((ids) => [...ids, linea.id!])
+      return prev.filter((l) => l.tempId !== tempId)
+    })
+  }
+
+  const guardando =
+    actualizar.isPending || crearIngrediente.isPending || actualizarIngrediente.isPending || eliminarIngrediente.isPending
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+
+    if (!receta.data) return
+    if (!name.trim()) return setError('Falta el nombre de la receta.')
+    if (ingredientes.some((l) => l.ingredientId === null)) {
+      return setError('Hay ingredientes sin elegir de la lista (no se admite texto libre en recetas).')
+    }
+    if (ingredientes.some((l) => (Number(String(l.amount).replace(',', '.')) || 0) <= 0)) {
+      return setError('Hay ingredientes sin cantidad.')
+    }
+
+    await actualizar.mutateAsync({
+      id,
+      cambios: {
+        name: name.trim(),
+        servings: Math.max(1, Number(servings) || 1),
+        instructions: instructions.trim(),
+      },
+    })
+
+    await Promise.all([
+      ...ingredientes.map((l) =>
+        l.id
+          ? actualizarIngrediente.mutateAsync({ id: l.id, recipe: id, cambios: ingredienteAPayload(l) })
+          : crearIngrediente.mutateAsync({ recipe: id, ingrediente: ingredienteAPayload(l) }),
+      ),
+      ...eliminados.map((ingredienteId) => eliminarIngrediente.mutateAsync({ id: ingredienteId, recipe: id })),
+    ])
+
+    navigate(`/compra/recetas/${id}`)
+  }
+
+  if (receta.isLoading || ingredientesExistentes.isLoading || !listo) {
+    return <SkeletonList rows={4} height="h-14" />
+  }
+  if (receta.isError || !receta.data) {
+    return <ErrorState onRetry={() => receta.refetch()} />
+  }
+
+  return (
+    <div className="animate-rise">
+      <PageTitle>Editar receta</PageTitle>
+      <form onSubmit={onSubmit} className="space-y-5">
+        <Card className="space-y-4">
+          <SectionLabel>Datos</SectionLabel>
+          <Field label="Nombre" value={name} onChange={(e) => setName(e.target.value)} required />
+          <Field
+            label="Raciones"
+            inputMode="numeric"
+            value={servings}
+            onChange={(e) => setServings(e.target.value)}
+            required
+          />
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-fg-muted" htmlFor="instrucciones-receta">
+              Instrucciones
+            </label>
+            <textarea
+              id="instrucciones-receta"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={4}
+              className="w-full rounded-[14px] border border-border bg-surface-2 px-4 py-3 text-fg placeholder:text-fg-subtle transition-colors focus:border-primary"
+            />
+          </div>
+        </Card>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Ingredientes</SectionLabel>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setIngredientes((p) => [...p, nuevoIngrediente()])}
+            >
+              <Plus size={16} aria-hidden="true" />
+              Anadir ingrediente
+            </Button>
+          </div>
+
+          {ingredientes.map((linea, i) => (
+            <Card key={linea.tempId} className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-fg-muted">{linea.name || `Ingrediente ${i + 1}`}</p>
+                {ingredientes.length > 1 ? (
+                  <button
+                    type="button"
+                    aria-label={`Quitar ingrediente ${i + 1}`}
+                    onClick={() => quitarLinea(linea.tempId)}
+                    className="flex h-9 w-9 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+
+              <BuscadorIngrediente
+                label="Alimento"
+                valorInicial={linea.name}
+                onSeleccionar={({ ingredientId, name: nombre }) =>
+                  actualizarLinea(linea.tempId, { ingredientId, name: nombre })
+                }
+              />
+
+              <Field
+                label="Cantidad (g)"
+                inputMode="decimal"
+                value={linea.amount}
+                onChange={(e) => actualizarLinea(linea.tempId, { amount: e.target.value })}
+              />
+            </Card>
+          ))}
+        </div>
+
+        {error ? <p className="text-sm text-danger">{error}</p> : null}
+        {actualizar.isError ? <p className="text-sm text-danger">No se pudo guardar la receta.</p> : null}
+
+        <div className="glass sticky bottom-20 flex items-center justify-end rounded-[16px] border border-border-strong p-4 lg:bottom-4">
+          <Button type="submit" disabled={guardando}>
+            {guardando ? 'Guardando...' : 'Guardar cambios'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
