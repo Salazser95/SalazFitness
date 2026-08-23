@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   Bar,
   BarChart,
@@ -11,11 +11,12 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { LogOut, Plus, Ruler, Scale } from 'lucide-react'
+import { Camera, Download, LogOut, Plus, Ruler, Scale, Trash2 } from 'lucide-react'
 
 import {
   Button,
   Card,
+  ConfirmModal,
   EmptyState,
   ErrorState,
   Field,
@@ -23,24 +24,29 @@ import {
   SectionLabel,
   SkeletonList,
   StatCard,
+  Thumbnail,
 } from '../../components/ui'
 import { int, kg, num, shortDate, today } from '../../lib/format'
 import { useAuth } from '../../lib/auth'
+import { useAjustes } from '../../lib/settings'
 import {
   useAddWeightEntry,
   useCreateMeasurement,
   useCreateMeasurementCategory,
+  useDeleteGalleryPhoto,
   useExerciseNames,
+  useGalleryPhotos,
   useMeasurementCategories,
   useMeasurements,
   useUpdateUserProfile,
+  useUploadGalleryPhoto,
   useUserProfile,
   useWeightEntries,
   useWorkoutLogs,
   useWorkoutSessions,
   type UserProfilePatch,
 } from './api'
-import { BarraProgreso, SelectField, TabBar, type TabId } from './components'
+import { BarraProgreso, SelectField, TabBar, ToggleField, type TabId } from './components'
 import {
   guardarObjetivo,
   leerObjetivo,
@@ -97,6 +103,9 @@ const CATEGORIAS_HABITUALES = [
 ]
 
 const RANGOS: Rango[] = ['1m', '3m', '6m', 'todo']
+
+const SUPERMERCADOS_HABITUALES = ['Mercadona', 'Carrefour', 'Lidl', 'Dia', 'Alcampo']
+const OTRO_SUPERMERCADO = 'Otro'
 
 // ------------------------------------------------------------------ Perfil
 
@@ -540,7 +549,108 @@ function ProgresoTab() {
           </ul>
         )}
       </Card>
+
+      <FotosProgreso />
     </div>
+  )
+}
+
+// ---------------------------------------------------------- Fotos progreso
+
+function FotosProgreso() {
+  const fotosQ = useGalleryPhotos()
+  const subirFoto = useUploadGalleryPhoto()
+  const borrarFoto = useDeleteGalleryPhoto()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [fotoABorrar, setFotoABorrar] = useState<number | null>(null)
+
+  const fotosOrdenadas = useMemo(
+    () => [...(fotosQ.data ?? [])].sort((a, b) => b.date.localeCompare(a.date)),
+    [fotosQ.data],
+  )
+
+  function onArchivoElegido(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) subirFoto.mutate(file)
+    // Reset para poder volver a elegir el mismo fichero si hace falta.
+    e.target.value = ''
+  }
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SectionLabel>Fotos de progreso</SectionLabel>
+        {fotosOrdenadas.length > 0 ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => inputRef.current?.click()}
+            disabled={subirFoto.isPending}
+          >
+            <Plus size={16} aria-hidden="true" />
+            {subirFoto.isPending ? 'Subiendo...' : 'Subir foto'}
+          </Button>
+        ) : null}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          onChange={onArchivoElegido}
+          className="hidden"
+          aria-label="Elegir foto de progreso"
+        />
+      </div>
+
+      {fotosQ.isLoading ? <SkeletonList rows={1} height="h-24" /> : null}
+      {fotosQ.isError ? (
+        <ErrorState message="No se han podido cargar las fotos." onRetry={() => void fotosQ.refetch()} />
+      ) : null}
+      {subirFoto.isError ? (
+        <p className="mt-3 text-sm text-danger">No se ha podido subir la foto. Intentalo de nuevo.</p>
+      ) : null}
+
+      {fotosQ.data && fotosOrdenadas.length === 0 ? (
+        <EmptyState
+          icon={Camera}
+          title="Sin fotos todavia"
+          description="Sube tu primera foto de progreso para poder comparar mas adelante."
+          action={{ label: 'Subir foto', onClick: () => inputRef.current?.click() }}
+        />
+      ) : null}
+
+      {fotosOrdenadas.length > 0 ? (
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {fotosOrdenadas.map((foto) => (
+            <div key={foto.id} className="relative">
+              <Thumbnail
+                src={foto.image}
+                alt={foto.description || `Foto de progreso del ${shortDate(foto.date)}`}
+                className="aspect-square"
+              />
+              <button
+                type="button"
+                onClick={() => setFotoABorrar(foto.id)}
+                aria-label="Eliminar foto"
+                className="glass absolute right-1 top-1 flex h-11 w-11 items-center justify-center rounded-full text-fg transition-colors hover:bg-danger/20 hover:text-danger"
+              >
+                <Trash2 size={16} aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <ConfirmModal
+        open={fotoABorrar !== null}
+        onClose={() => setFotoABorrar(null)}
+        onConfirm={() => {
+          if (fotoABorrar !== null) borrarFoto.mutate(fotoABorrar)
+        }}
+        title="Eliminar foto"
+        description="Esta foto se borrara permanentemente."
+      />
+    </Card>
   )
 }
 
@@ -736,6 +846,101 @@ function MedidasTab() {
   )
 }
 
+// ------------------------------------------------------------------ Ajustes
+
+function AjustesTab() {
+  const { mostrarMediaEjercicios, setMostrarMediaEjercicios, supermercadoDefecto, setSupermercadoDefecto } =
+    useAjustes()
+  const profileQ = useUserProfile()
+
+  const esConocido = SUPERMERCADOS_HABITUALES.includes(supermercadoDefecto)
+  const [seleccionSuper, setSeleccionSuper] = useState(esConocido ? supermercadoDefecto : OTRO_SUPERMERCADO)
+  const [textoOtro, setTextoOtro] = useState(esConocido ? '' : supermercadoDefecto)
+
+  function onCambiarSeleccion(valor: string) {
+    setSeleccionSuper(valor)
+    setSupermercadoDefecto(valor === OTRO_SUPERMERCADO ? textoOtro.trim() : valor)
+  }
+
+  function onCambiarTextoOtro(valor: string) {
+    setTextoOtro(valor)
+    setSupermercadoDefecto(valor.trim())
+  }
+
+  function exportarDatos() {
+    const datos = {
+      exportadoEl: new Date().toISOString(),
+      perfil: profileQ.data ?? null,
+      objetivo: leerObjetivo(),
+    }
+    const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const enlace = document.createElement('a')
+    enlace.href = url
+    enlace.download = `salazfitness-datos-${today()}.json`
+    document.body.appendChild(enlace)
+    enlace.click()
+    document.body.removeChild(enlace)
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <SectionLabel>Ejercicios</SectionLabel>
+        <ToggleField
+          label="Mostrar videos e imagenes de ejercicios"
+          hint="Desactivalo si prefieres una pantalla de entreno mas simple."
+          checked={mostrarMediaEjercicios}
+          onChange={setMostrarMediaEjercicios}
+        />
+      </Card>
+
+      <Card>
+        <SectionLabel>Compra</SectionLabel>
+        <SelectField
+          label="Supermercado por defecto"
+          value={seleccionSuper}
+          onChange={(e) => onCambiarSeleccion(e.target.value)}
+        >
+          {SUPERMERCADOS_HABITUALES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+          <option value={OTRO_SUPERMERCADO}>{OTRO_SUPERMERCADO}</option>
+        </SelectField>
+        {seleccionSuper === OTRO_SUPERMERCADO ? (
+          <Field
+            label="Nombre del supermercado"
+            placeholder="p.ej. Eroski"
+            value={textoOtro}
+            onChange={(e) => onCambiarTextoOtro(e.target.value)}
+            className="mt-4"
+          />
+        ) : null}
+      </Card>
+
+      <Card>
+        <SectionLabel>Datos</SectionLabel>
+        <p className="text-sm text-fg-muted">
+          Descarga una copia de tu perfil y tu objetivo de peso en un fichero JSON.
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          className="mt-4"
+          onClick={exportarDatos}
+          disabled={!profileQ.data}
+        >
+          <Download size={18} aria-hidden="true" />
+          Exportar datos
+        </Button>
+      </Card>
+    </div>
+  )
+}
+
 // --------------------------------------------------------------------- Yo
 
 export default function YoPage() {
@@ -765,6 +970,9 @@ export default function YoPage() {
       </div>
       <div id="panel-medidas" role="tabpanel" aria-labelledby="tab-medidas" hidden={tab !== 'medidas'}>
         {tab === 'medidas' ? <MedidasTab /> : null}
+      </div>
+      <div id="panel-ajustes" role="tabpanel" aria-labelledby="tab-ajustes" hidden={tab !== 'ajustes'}>
+        {tab === 'ajustes' ? <AjustesTab /> : null}
       </div>
     </>
   )

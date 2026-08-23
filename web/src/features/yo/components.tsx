@@ -39,14 +39,72 @@ export function SelectField({
   )
 }
 
+// ---------------------------------------------------------------- Toggle
+
+/**
+ * Interruptor on/off. Checkbox real por debajo (accesible con teclado y
+ * lector de pantalla via role="switch"), pintado como pastilla deslizante.
+ * La fila entera es la etiqueta, asi que el area tocable supera 44x44px.
+ */
+export function ToggleField({
+  label,
+  hint,
+  checked,
+  onChange,
+  id,
+}: {
+  label: string
+  hint?: ReactNode
+  checked: boolean
+  onChange: (v: boolean) => void
+  id?: string
+}) {
+  const toggleId = id ?? `t-${label.toLowerCase().replace(/\s+/g, '-')}`
+  return (
+    <label
+      htmlFor={toggleId}
+      className="flex min-h-[44px] cursor-pointer items-center justify-between gap-4 py-1"
+    >
+      <span>
+        <span className="block text-sm font-medium text-fg">{label}</span>
+        {hint ? <span className="mt-0.5 block text-sm text-fg-subtle">{hint}</span> : null}
+      </span>
+      <span className="relative inline-flex h-8 w-14 shrink-0 items-center">
+        <input
+          id={toggleId}
+          type="checkbox"
+          role="switch"
+          aria-checked={checked}
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+        />
+        <span
+          aria-hidden="true"
+          className={`h-8 w-14 rounded-full border transition-colors duration-150 ${
+            checked ? 'border-primary bg-primary' : 'border-border bg-surface-2'
+          } peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary`}
+        />
+        <span
+          aria-hidden="true"
+          className={`absolute left-1 h-6 w-6 rounded-full shadow transition-transform duration-150 ease-out ${
+            checked ? 'translate-x-6 bg-on-primary' : 'translate-x-0 bg-fg-muted'
+          }`}
+        />
+      </span>
+    </label>
+  )
+}
+
 // ------------------------------------------------------------------ Tabs
 
-export type TabId = 'perfil' | 'progreso' | 'medidas'
+export type TabId = 'perfil' | 'progreso' | 'medidas' | 'ajustes'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'perfil', label: 'Perfil' },
   { id: 'progreso', label: 'Progreso' },
   { id: 'medidas', label: 'Medidas' },
+  { id: 'ajustes', label: 'Ajustes' },
 ]
 
 export function TabBar({ activa, onChange }: { activa: TabId; onChange: (t: TabId) => void }) {

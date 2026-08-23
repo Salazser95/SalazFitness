@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, fetchAll } from '../../lib/api'
+import { ApiError, api, fetchAll } from '../../lib/api'
+import { readTokens } from '../../lib/tokens'
+import { today } from '../../lib/format'
 
 /**
  * Acceso a la API de wger para la pantalla "Yo". Formas verificadas contra el
@@ -82,6 +84,23 @@ export type Measurement = {
   notes: string
 }
 
+// --------------------------------------------------------- Fotos de progreso
+
+/**
+ * GET /api/v2/gallery/ (privado por usuario). El id es entero, a diferencia
+ * de measurement-category/measurement que usan UUID: verificado en
+ * .recon/openapi.json ("Image" -> id: integer). `image` llega como URL
+ * completa lista para pintar en un <img>.
+ */
+export type GalleryPhoto = {
+  id: number
+  date: string // YYYY-MM-DD
+  image: string
+  description: string
+  height: number
+  width: number
+}
+
 // ------------------------------------------------------------- Claves
 
 export const yoKeys = {
@@ -92,6 +111,7 @@ export const yoKeys = {
   categories: ['yo', 'categories'] as const,
   measurements: ['yo', 'measurements'] as const,
   version: ['yo', 'version'] as const,
+  gallery: ['yo', 'gallery'] as const,
 }
 
 // -------------------------------------------------------------- Perfil
@@ -176,6 +196,62 @@ export function useCreateMeasurement() {
     mutationFn: (m: { category: string; date: string; value: number; notes?: string }) =>
       api.post<Measurement>('/api/v2/measurement/', m),
     onSuccess: () => qc.invalidateQueries({ queryKey: yoKeys.measurements }),
+  })
+}
+
+// --------------------------------------------------------- Fotos de progreso
+
+export function useGalleryPhotos() {
+  return useQuery({
+    queryKey: yoKeys.gallery,
+    queryFn: () => fetchAll<GalleryPhoto>('/api/v2/gallery/'),
+  })
+}
+
+/**
+ * `api.post` de lib/api.ts siempre manda JSON: para subir un fichero hace
+ * falta `multipart/form-data`, que el navegador construye solo a partir de
+ * un `FormData` (no forzar el Content-Type a mano, o pierde el boundary).
+ * Por eso esto es un fetch directo, replicando solo lo necesario del cliente
+ * comun: cabecera Authorization con el access token actual y manejo de error
+ * con ApiError para que la UI lo trate igual que cualquier otro fallo.
+ */
+export function useUploadGalleryPhoto() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const tokens = readTokens()
+      const body = new FormData()
+      body.append('date', today())
+      body.append('image', file)
+
+      const res = await fetch('/api/v2/gallery/', {
+        method: 'POST',
+        headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : undefined,
+        body,
+      })
+
+      if (!res.ok) {
+        let parsed: unknown = null
+        try {
+          parsed = await res.json()
+        } catch {
+          /* respuesta sin cuerpo JSON */
+        }
+        throw new ApiError(res.status, parsed)
+      }
+
+      return (await res.json()) as GalleryPhoto
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: yoKeys.gallery }),
+  })
+}
+
+export function useDeleteGalleryPhoto() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del<void>(`/api/v2/gallery/${id}/`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: yoKeys.gallery }),
   })
 }
 
