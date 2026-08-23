@@ -35,3 +35,5 @@ Thumbs.db
 graphify-out/.graphify_*
 graphify-out/cost.json
 graphify-out/obsidian/
+graphify-out/manifest.json
+graphify-out/cache/
