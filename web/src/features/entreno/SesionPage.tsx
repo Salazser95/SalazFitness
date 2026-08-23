@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BedDouble, ChevronLeft, ChevronRight, Flag } from 'lucide-react'
+import { BedDouble, ChevronLeft, ChevronRight, Flag, Info } from 'lucide-react'
 
-import { Button, Card, EmptyState, ErrorState, SkeletonList } from '../../components/ui'
+import { Button, Card, EmptyState, ErrorState, Modal, SkeletonList, Thumbnail } from '../../components/ui'
+import { useAjustes } from '../../lib/settings'
 import { today } from '../../lib/format'
 import {
   pickActiveRoutine,
   useCrearSesion,
   useDateSequenceGym,
+  useExerciseMedia,
   useExerciseNames,
   useRegistrarSerie,
   useRoutines,
@@ -69,6 +71,13 @@ export default function SesionPage() {
   )
   const [error, setError] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  const [comoHacerloAbierto, setComoHacerloAbierto] = useState(false)
+
+  const { mostrarMediaEjercicios } = useAjustes()
+  // Hooks siempre en el mismo orden: se calcula antes de los "return"
+  // condicionales de mas abajo, con 0 como id "vacio" si aun no hay progreso.
+  const exerciseIdActual = progreso ? (progreso.ejercicios[progreso.ejercicioActual]?.exercise ?? 0) : 0
+  const media = useExerciseMedia(exerciseIdActual)
 
   // Carga el progreso guardado o arranca uno nuevo, una sola vez por dia+rutina.
   useEffect(() => {
@@ -160,7 +169,10 @@ export default function SesionPage() {
 
   function irA(nuevoIndex: number) {
     setProgreso((p) => (p ? { ...p, ejercicioActual: nuevoIndex } : p))
+    setComoHacerloAbierto(false)
   }
+
+  const hayMedia = Boolean(media.video || media.image)
 
   function actualizarCampo(
     serieIdx: number,
@@ -236,11 +248,21 @@ export default function SesionPage() {
   return (
     <>
       <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">
             Ejercicio {idx + 1} de {totalEjercicios} · {seriesCompletadas}/{totalSeries} series
           </p>
           <h1 className="font-display text-4xl leading-tight">{nombre}</h1>
+          {mostrarMediaEjercicios && hayMedia ? (
+            <button
+              type="button"
+              onClick={() => setComoHacerloAbierto(true)}
+              className="mt-1 flex h-9 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-xs font-medium text-fg-muted transition-colors duration-150 hover:bg-surface-3 hover:text-fg"
+            >
+              <Info size={14} aria-hidden="true" />
+              Como hacerlo
+            </button>
+          ) : null}
         </div>
         <Button
           variant="secondary"
@@ -326,6 +348,20 @@ export default function SesionPage() {
           onTerminar={() => setDescansoActivo(null)}
         />
       ) : null}
+
+      <Modal
+        open={comoHacerloAbierto}
+        onClose={() => setComoHacerloAbierto(false)}
+        title={`Como hacerlo: ${nombre}`}
+      >
+        {media.video ? (
+          <video controls muted loop playsInline src={media.video} className="w-full rounded-[14px]" />
+        ) : media.image ? (
+          <Thumbnail src={media.image} alt={`Como hacer: ${nombre}`} className="aspect-video" />
+        ) : (
+          <p className="text-sm text-fg-muted">No hay video ni imagen para este ejercicio todavia.</p>
+        )}
+      </Modal>
     </>
   )
 }

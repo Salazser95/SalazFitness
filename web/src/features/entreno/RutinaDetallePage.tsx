@@ -1,10 +1,26 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { BedDouble, ChevronRight } from 'lucide-react'
+import { BedDouble, ChevronRight, Copy, Pencil, Trash2 } from 'lucide-react'
 
-import { Card, ErrorState, PageTitle, SectionLabel, SkeletonList } from '../../components/ui'
-import { shortDate } from '../../lib/format'
-import { useExerciseNames, useRoutineStructure, type StructureSlotEntry } from './api'
+import {
+  Button,
+  Card,
+  ConfirmModal,
+  ErrorState,
+  Field,
+  Modal,
+  PageTitle,
+  SectionLabel,
+  SkeletonList,
+} from '../../components/ui'
+import { shortDate, today } from '../../lib/format'
+import {
+  useDuplicarRutina,
+  useEliminarRutina,
+  useExerciseNames,
+  useRoutineStructure,
+  type StructureSlotEntry,
+} from './api'
 
 /** El primer valor de la lista de configs (normalmente solo hay uno por iteracion 1). */
 function valorConfig(configs: { value: string | number }[]): string | null {
@@ -19,12 +35,94 @@ function resumenSerie(entry: StructureSlotEntry): string {
   return partes.filter(Boolean).join(' · ') || 'Sin configurar'
 }
 
+/** Misma duracion que la original, pero empezando hoy. */
+function fechaFinPorDuracion(start: string, end: string, nuevoInicio: string): string {
+  const dias = Math.max(
+    1,
+    Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86_400_000),
+  )
+  const d = new Date(`${nuevoInicio}T00:00:00`)
+  d.setDate(d.getDate() + dias)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+function ModalDuplicar({
+  open,
+  onClose,
+  routineId,
+  nombreOriginal,
+  start,
+  end,
+}: {
+  open: boolean
+  onClose: () => void
+  routineId: number
+  nombreOriginal: string
+  start: string
+  end: string
+}) {
+  const navigate = useNavigate()
+  const duplicar = useDuplicarRutina()
+  const inicio = today()
+  const [nombre, setNombre] = useState(`${nombreOriginal} (copia)`.slice(0, 25))
+  const [nuevoInicio, setNuevoInicio] = useState(inicio)
+  const [nuevoFin, setNuevoFin] = useState(fechaFinPorDuracion(start, end, inicio))
+  const [error, setError] = useState<string | null>(null)
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    try {
+      const nueva = await duplicar.mutateAsync({
+        routineId,
+        nombre: nombre.trim(),
+        start: nuevoInicio,
+        end: nuevoFin,
+      })
+      onClose()
+      navigate(`/entreno/rutina/${nueva.id}`)
+    } catch {
+      setError('No se ha podido duplicar la rutina. Prueba otra vez.')
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Duplicar rutina">
+      <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
+        <Field label="Nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={25} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field
+            label="Inicio"
+            type="date"
+            value={nuevoInicio}
+            onChange={(e) => setNuevoInicio(e.target.value)}
+          />
+          <Field label="Fin" type="date" value={nuevoFin} onChange={(e) => setNuevoFin(e.target.value)} />
+        </div>
+        {error ? <p className="text-sm text-danger">{error}</p> : null}
+        <p className="text-xs text-fg-subtle">
+          Se copian todos los dias, ejercicios y series configuradas, una peticion por cada uno:
+          en rutinas largas puede tardar cerca de un minuto. No cierres esta pantalla mientras
+          dure.
+        </p>
+        <Button type="submit" full disabled={duplicar.isPending}>
+          {duplicar.isPending ? 'Duplicando...' : 'Duplicar'}
+        </Button>
+      </form>
+    </Modal>
+  )
+}
+
 export default function RutinaDetallePage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const routineId = id ? Number(id) : null
 
   const structure = useRoutineStructure(routineId)
+  const eliminar = useEliminarRutina()
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false)
+  const [modalDuplicarAbierto, setModalDuplicarAbierto] = useState(false)
 
   const exerciseIds = useMemo(
     () =>
@@ -51,10 +149,25 @@ export default function RutinaDetallePage() {
   return (
     <>
       <PageTitle>{rutina.name}</PageTitle>
-      <p className="-mt-3 mb-5 text-sm text-fg-muted">
+      <p className="-mt-3 mb-3 text-sm text-fg-muted">
         {shortDate(rutina.start)} - {shortDate(rutina.end)}
         {rutina.description ? ` · ${rutina.description}` : ''}
       </p>
+
+      <div className="mb-5 flex flex-wrap gap-2">
+        <Button variant="secondary" size="sm" onClick={() => navigate(`/entreno/rutina/${rutina.id}/editar`)}>
+          <Pencil size={16} aria-hidden="true" />
+          Editar
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => setModalDuplicarAbierto(true)}>
+          <Copy size={16} aria-hidden="true" />
+          Duplicar
+        </Button>
+        <Button variant="danger" size="sm" onClick={() => setConfirmarBorrado(true)}>
+          <Trash2 size={16} aria-hidden="true" />
+          Eliminar
+        </Button>
+      </div>
 
       <SectionLabel>Dias de la rutina</SectionLabel>
       <ul className="space-y-3">
@@ -107,6 +220,26 @@ export default function RutinaDetallePage() {
             </li>
           ))}
       </ul>
+
+      <ConfirmModal
+        open={confirmarBorrado}
+        onClose={() => setConfirmarBorrado(false)}
+        onConfirm={() => {
+          void eliminar.mutateAsync(rutina.id)
+          navigate('/entreno')
+        }}
+        title={`Eliminar "${rutina.name}"`}
+        description="Se borraran tambien todos sus dias y ejercicios configurados. No se puede deshacer."
+      />
+
+      <ModalDuplicar
+        open={modalDuplicarAbierto}
+        onClose={() => setModalDuplicarAbierto(false)}
+        routineId={rutina.id}
+        nombreOriginal={rutina.name}
+        start={rutina.start}
+        end={rutina.end}
+      />
     </>
   )
 }

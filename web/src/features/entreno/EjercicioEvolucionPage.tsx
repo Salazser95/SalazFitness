@@ -12,9 +12,10 @@ import {
 } from 'recharts'
 import { ArrowLeft, ChartLine } from 'lucide-react'
 
-import { Card, EmptyState, ErrorState, PageTitle, SkeletonList } from '../../components/ui'
+import { Card, EmptyState, ErrorState, PageTitle, SkeletonList, Thumbnail } from '../../components/ui'
+import { useAjustes } from '../../lib/settings'
 import { kg, shortDate } from '../../lib/format'
-import { useExerciseNames, useWorkoutLogsByExercise } from './api'
+import { useExerciseMedia, useExerciseNames, useWorkoutLogsByExercise } from './api'
 
 // Colores de graficas del sistema de diseno, en este orden fijo. Ver
 // "Colores de graficas" en docs/DESIGN-SYSTEM.md: es la unica excepcion
@@ -32,6 +33,11 @@ export default function EjercicioEvolucionPage() {
   const logs = useWorkoutLogsByExercise(exerciseId)
   const nombres = useExerciseNames(useMemo(() => (exerciseId !== null ? [exerciseId] : []), [exerciseId]))
   const nombre = exerciseId !== null ? nombres.get(exerciseId) : undefined
+
+  const { mostrarMediaEjercicios } = useAjustes()
+  // El hook necesita un numero: si aun no hay id (ruta cargando) se pide con
+  // 0, que el servidor no reconoce como ejercicio valido y devuelve null.
+  const media = useExerciseMedia(exerciseId ?? 0)
 
   const datos = useMemo<PuntoGrafica[]>(() => {
     if (!logs.data) return []
@@ -64,6 +70,23 @@ export default function EjercicioEvolucionPage() {
       </button>
 
       <PageTitle>{nombre ?? 'Evolucion del ejercicio'}</PageTitle>
+
+      {mostrarMediaEjercicios && exerciseId !== null && !media.isLoading && media.video ? (
+        <video
+          controls
+          muted
+          loop
+          playsInline
+          src={media.video}
+          className="mb-5 w-full rounded-[20px]"
+        />
+      ) : mostrarMediaEjercicios && exerciseId !== null && !media.isLoading && media.image ? (
+        <Thumbnail
+          src={media.image}
+          alt={`Como hacer: ${nombre ?? 'ejercicio'}`}
+          className="mb-5 aspect-video"
+        />
+      ) : null}
 
       {logs.isLoading ? <SkeletonList rows={1} height="h-72" /> : null}
 

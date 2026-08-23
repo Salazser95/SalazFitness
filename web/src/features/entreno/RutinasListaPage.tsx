@@ -1,14 +1,16 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CalendarDays, ChevronRight, Dumbbell } from 'lucide-react'
+import { CalendarDays, ChevronRight, Dumbbell, Plus, Trash2 } from 'lucide-react'
 
-import { Card, EmptyState, ErrorState, PageTitle, SkeletonList } from '../../components/ui'
+import { Button, Card, ConfirmModal, EmptyState, ErrorState, PageTitle, SkeletonList } from '../../components/ui'
 import { shortDate } from '../../lib/format'
-import { pickActiveRoutine, useRoutines } from './api'
+import { pickActiveRoutine, useEliminarRutina, useRoutines, type Routine } from './api'
 
 export default function RutinasListaPage() {
   const navigate = useNavigate()
   const routines = useRoutines()
+  const eliminar = useEliminarRutina()
+  const [rutinaABorrar, setRutinaABorrar] = useState<Routine | null>(null)
 
   const activeId = useMemo(
     () => (routines.data ? pickActiveRoutine(routines.data)?.id : undefined),
@@ -31,6 +33,16 @@ export default function RutinasListaPage() {
       >
         Entreno
       </PageTitle>
+
+      <div className="mb-5 flex gap-2">
+        <Button size="sm" onClick={() => navigate('/entreno/rutina/nueva')}>
+          <Plus size={16} aria-hidden="true" />
+          Nueva rutina
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => navigate('/entreno/importar-plantilla')}>
+          Importar plantilla
+        </Button>
+      </div>
 
       {routines.isLoading ? <SkeletonList rows={3} height="h-24" /> : null}
 
@@ -57,7 +69,7 @@ export default function RutinasListaPage() {
               <li key={r.id}>
                 <Card
                   as="article"
-                  className="flex cursor-pointer items-center justify-between gap-3 transition-colors duration-150 hover:bg-surface-2"
+                  className="flex cursor-pointer items-center justify-between gap-1 transition-colors duration-150 hover:bg-surface-2"
                 >
                   <button
                     type="button"
@@ -79,11 +91,29 @@ export default function RutinasListaPage() {
                     </div>
                     <ChevronRight size={20} className="shrink-0 text-fg-subtle" aria-hidden="true" />
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setRutinaABorrar(r)}
+                    aria-label={`Eliminar rutina ${r.name}`}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-subtle transition-colors duration-150 hover:bg-danger/10 hover:text-danger"
+                  >
+                    <Trash2 size={18} aria-hidden="true" />
+                  </button>
                 </Card>
               </li>
             ))}
         </ul>
       ) : null}
+
+      <ConfirmModal
+        open={rutinaABorrar !== null}
+        onClose={() => setRutinaABorrar(null)}
+        onConfirm={() => {
+          if (rutinaABorrar) void eliminar.mutateAsync(rutinaABorrar.id)
+        }}
+        title={`Eliminar "${rutinaABorrar?.name ?? ''}"`}
+        description="Se borraran tambien todos sus dias y ejercicios configurados. No se puede deshacer."
+      />
     </>
   )
 }
