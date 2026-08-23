@@ -1,6 +1,7 @@
-import { TrendingDown, TrendingUp } from 'lucide-react'
+import { TrendingDown, TrendingUp, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
+import { useEffect, useRef } from 'react'
 
 // ---------------------------------------------------------------- Button
 
@@ -231,5 +232,159 @@ export function ErrorState({ message, onRetry }: { message?: string; onRetry?: (
         </Button>
       ) : null}
     </div>
+  )
+}
+
+// ------------------------------------------------------------------ Modal
+
+// Overlay generico: confirmaciones, formularios cortos, o el Lightbox de abajo.
+// Atrapa Escape para cerrar y bloquea el scroll del fondo mientras esta abierto.
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  className = '',
+}: {
+  open: boolean
+  onClose: () => void
+  title?: string
+  children: ReactNode
+  className?: string
+}) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={onClose}
+    >
+      <div
+        className={`max-h-[90vh] w-full max-w-lg overflow-auto rounded-[20px] border border-border bg-surface p-5 ${className}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          {title ? <h2 className="font-display text-xl text-fg">{title}</h2> : <span />}
+          <button
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+export function ConfirmModal({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  description,
+  confirmLabel = 'Eliminar',
+  danger = true,
+}: {
+  open: boolean
+  onClose: () => void
+  onConfirm: () => void
+  title: string
+  description?: string
+  confirmLabel?: string
+  danger?: boolean
+}) {
+  return (
+    <Modal open={open} onClose={onClose} title={title}>
+      {description ? <p className="text-sm text-fg-muted">{description}</p> : null}
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button
+          variant={danger ? 'danger' : 'primary'}
+          onClick={() => {
+            onConfirm()
+            onClose()
+          }}
+        >
+          {confirmLabel}
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+// --------------------------------------------------------------- Lightbox
+
+// Miniatura que ocupa su sitio normal en el layout. Solo se ve a tamano
+// completo si el usuario la pulsa: nunca se maximiza sola.
+export function Thumbnail({
+  src,
+  alt,
+  className = 'aspect-square',
+}: {
+  src: string
+  alt: string
+  className?: string
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => dialogRef.current?.showModal()}
+        className={`group relative block w-full overflow-hidden rounded-[14px] border border-border bg-surface-2 ${className}`}
+        aria-label={`Ampliar: ${alt}`}
+      >
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+        />
+      </button>
+
+      {/* <dialog> nativo: foco atrapado y Escape para cerrar sin JS extra */}
+      <dialog
+        ref={dialogRef}
+        onClick={(e) => {
+          if (e.target === dialogRef.current) dialogRef.current?.close()
+        }}
+        className="m-auto max-h-[90vh] max-w-[92vw] overflow-hidden rounded-[20px] border border-border bg-surface p-0 backdrop:bg-black/80"
+      >
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => dialogRef.current?.close()}
+            aria-label="Cerrar"
+            className="glass absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full text-fg transition-colors hover:bg-surface-2"
+          >
+            <X size={20} aria-hidden="true" />
+          </button>
+          <img src={src} alt={alt} className="block max-h-[90vh] max-w-[92vw] object-contain" />
+        </div>
+      </dialog>
+    </>
   )
 }
