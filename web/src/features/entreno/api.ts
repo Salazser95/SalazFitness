@@ -272,6 +272,35 @@ async function fetchExerciseImage(exerciseId: number): Promise<string | null> {
   }
 }
 
+export type ExerciseDetail = {
+  id: number
+  category: number
+}
+
+/**
+ * Categoria de un ejercicio (Chest, Back, Legs...), para poder pintar
+ * `ExerciseIllustration` cuando no hay video ni imagen real. Sigue el mismo
+ * patron try/catch que fetchExerciseVideo/fetchExerciseImage: nunca lanza,
+ * devuelve null si el ejercicio no existe o el endpoint falla.
+ */
+async function fetchExerciseCategory(exerciseId: number): Promise<number | null> {
+  try {
+    const res = await api.get<ExerciseDetail>(`/api/v2/exercise/${exerciseId}/`)
+    return res.category
+  } catch {
+    return null
+  }
+}
+
+export function useExerciseCategory(exerciseId: number) {
+  return useQuery({
+    queryKey: ['entreno', 'exercise-category', exerciseId],
+    queryFn: () => fetchExerciseCategory(exerciseId),
+    staleTime: Infinity, // la categoria de un ejercicio no cambia
+    enabled: exerciseId > 0,
+  })
+}
+
 /**
  * Media de un ejercicio (como hacerlo): prioriza el video sobre la imagen si
  * hay ambos. Devuelve null en cada campo si no hay nada todavia, nunca lanza.

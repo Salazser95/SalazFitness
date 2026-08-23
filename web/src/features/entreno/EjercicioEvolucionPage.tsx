@@ -15,7 +15,8 @@ import { ArrowLeft, ChartLine } from 'lucide-react'
 import { Card, EmptyState, ErrorState, PageTitle, SkeletonList, Thumbnail } from '../../components/ui'
 import { useAjustes } from '../../lib/settings'
 import { kg, shortDate } from '../../lib/format'
-import { useExerciseMedia, useExerciseNames, useWorkoutLogsByExercise } from './api'
+import { useExerciseCategory, useExerciseMedia, useExerciseNames, useWorkoutLogsByExercise } from './api'
+import { ExerciseIllustration } from './components/ExerciseIllustration'
 
 // Colores de graficas del sistema de diseno, en este orden fijo. Ver
 // "Colores de graficas" en docs/DESIGN-SYSTEM.md: es la unica excepcion
@@ -38,6 +39,7 @@ export default function EjercicioEvolucionPage() {
   // El hook necesita un numero: si aun no hay id (ruta cargando) se pide con
   // 0, que el servidor no reconoce como ejercicio valido y devuelve null.
   const media = useExerciseMedia(exerciseId ?? 0)
+  const categoria = useExerciseCategory(exerciseId ?? 0)
 
   const datos = useMemo<PuntoGrafica[]>(() => {
     if (!logs.data) return []
@@ -86,6 +88,13 @@ export default function EjercicioEvolucionPage() {
           alt={`Como hacer: ${nombre ?? 'ejercicio'}`}
           className="mb-5 aspect-video"
         />
+      ) : mostrarMediaEjercicios && exerciseId !== null && !media.isLoading ? (
+        <div className="mb-5">
+          <ExerciseIllustration category={categoria.data ?? null} className="aspect-video w-full" />
+          <p className="mt-2 text-center text-xs text-fg-subtle">
+            Sin foto de demostracion disponible para este ejercicio todavia.
+          </p>
+        </div>
       ) : null}
 
       {logs.isLoading ? <SkeletonList rows={1} height="h-72" /> : null}
