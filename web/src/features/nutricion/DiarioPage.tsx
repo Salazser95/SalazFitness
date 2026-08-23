@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Apple, ChevronLeft, ChevronRight, GlassWater, Plus, Trash2 } from 'lucide-react'
+import { Apple, ChevronLeft, ChevronRight, Copy, GlassWater, Plus, Trash2 } from 'lucide-react'
 
 import { Button, Card, EmptyState, ErrorState, SectionLabel, SkeletonList } from '../../components/ui'
 import {
@@ -9,6 +9,7 @@ import {
   mapaComidas,
   sumMacros,
   useAsegurarComidas,
+  useCopiarDia,
   useCrearPlan,
   useDiario,
   useEliminarEntrada,
@@ -89,6 +90,40 @@ function SelectorFecha({
         <ChevronRight size={20} aria-hidden="true" />
       </button>
     </Card>
+  )
+}
+
+function BotonCopiarDia({ planId, fecha }: { planId: string | undefined; fecha: string }) {
+  const anterior = sumarDias(fecha, -1)
+  const copiar = useCopiarDia(planId, fecha)
+  const [mensaje, setMensaje] = useState<string | null>(null)
+
+  function copiarDiaAnterior() {
+    setMensaje(null)
+    copiar.mutate(anterior, {
+      onSuccess: (cantidad) => {
+        setMensaje(
+          cantidad > 0 ? `Copiados ${cantidad} alimentos.` : 'El dia anterior no tiene registros.',
+        )
+      },
+    })
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <Button variant="ghost" size="sm" onClick={copiarDiaAnterior} disabled={copiar.isPending}>
+        <Copy size={16} aria-hidden="true" />
+        {copiar.isPending
+          ? 'Copiando...'
+          : fecha === today()
+            ? 'Copiar el dia de ayer'
+            : 'Copiar el dia anterior'}
+      </Button>
+      {mensaje ? <p className="text-xs text-fg-subtle">{mensaje}</p> : null}
+      {copiar.isError ? (
+        <p className="text-xs text-danger">No se pudo copiar. Intentalo de nuevo.</p>
+      ) : null}
+    </div>
   )
 }
 
@@ -272,6 +307,8 @@ export default function DiarioPage() {
   return (
     <div className="animate-rise space-y-5">
       <SelectorFecha fecha={fecha} onCambiar={setFecha} />
+
+      <BotonCopiarDia planId={planId} fecha={fecha} />
 
       <Card className="text-center">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">

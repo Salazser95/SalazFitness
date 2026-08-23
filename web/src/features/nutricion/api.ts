@@ -21,9 +21,10 @@
 
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { UseMutationResult } from '@tanstack/react-query'
-import { api } from '../../lib/api'
+import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query'
+import { api, fetchAll } from '../../lib/api'
 import type { Paginated } from '../../lib/api'
+import { escribirPlanActivoId, leerPlanActivoId, usePlanActivoId } from './local'
 
 // ---------------------------------------------------------------- tipos
 
@@ -46,6 +47,8 @@ export type Ingredient = {
 
 export type NutritionPlan = {
   id: string
+  /** Fecha de creacion, YYYY-MM-DD. La asigna el servidor, solo lectura. */
+  creation_date: string
   description: string
   only_logging: boolean
   goal_energy: number | null
@@ -63,7 +66,19 @@ export type Meal = {
   name: string
 }
 
-export type NutritionPlanInfo = NutritionPlan & { meals: Meal[] }
+/** Un alimento dentro de la plantilla de una comida (`meal`). Distinto de una entrada del diario. */
+export type MealItem = {
+  id: string
+  meal: string
+  ingredient: number
+  weight_unit: number | null
+  order: number
+  amount: string
+}
+
+export type MealConItems = Meal & { meal_items: MealItem[] }
+
+export type NutritionPlanInfo = NutritionPlan & { meals: MealConItems[] }
 
 export type DiaryEntry = {
   id: string
@@ -133,7 +148,7 @@ export function sumMacros(lista: Macros[]): Macros {
 // ------------------------------------------------------------- claves
 
 const keys = {
-  plan: ['nutricion', 'plan'] as const,
+  planes: ['nutricion', 'planes'] as const,
   planInfo: (id: string | undefined) => ['nutricion', 'plan-info', id] as const,
   diario: (planId: string | undefined, fecha: string) =>
     ['nutricion', 'diario', planId, fecha] as const,
@@ -144,17 +159,48 @@ const keys = {
 
 // --------------------------------------------------------- consultas
 
-/** El plan activo del usuario. wger permite varios; SalazFitness usa siempre el mas reciente. */
-export function usePlan() {
+async function fetchPlanes(): Promise<NutritionPlan[]> {
+  return fetchAll<NutritionPlan>('/api/v2/nutritionplan/?ordering=-creation_date')
+}
+
+/** Todos los planes del usuario, mas recientes primero. Para el selector de plan activo. */
+export function usePlanes() {
   return useQuery({
-    queryKey: keys.plan,
-    queryFn: async () => {
-      const res = await api.get<Paginated<NutritionPlan>>(
-        '/api/v2/nutritionplan/?limit=1&ordering=-creation_date',
-      )
-      return res.results[0] ?? null
-    },
+    queryKey: keys.planes,
+    queryFn: fetchPlanes,
   })
+}
+
+/**
+ * El plan activo: el guardado en `localStorage` (clave `salaz.nutricion.planActivoId`)
+ * si todavia existe, si no el mas reciente. Comparte cache con `usePlanes()`.
+ *
+ * Ojo: NO se calcula con `select`. `select` en TanStack Query se memoriza segun la
+ * identidad de `data`, y con `structuralSharing` (activo por defecto) esa identidad
+ * se mantiene si el array de planes no cambio de verdad, aunque haya habido un
+ * refetch. Y aunque se calculara en el cuerpo del hook a secas, TanStack Query solo
+ * re-renderiza cuando cambia una propiedad que el componente leyo (`data`,
+ * `isLoading`...) — como el plan activo depende de `localStorage`, no de eso, un
+ * cambio de plan activo no forzaria un re-render. Por eso `activoId` viene de
+ * `usePlanActivoId`, que se suscribe aparte con `useSyncExternalStore`.
+ */
+export function usePlan(): {
+  data: NutritionPlan | null | undefined
+  isLoading: boolean
+  isError: boolean
+  refetch: UseQueryResult<NutritionPlan[]>['refetch']
+} {
+  const planes = usePlanes()
+  const activoId = usePlanActivoId()
+  const data = planes.data
+    ? (activoId && planes.data.find((p) => p.id === activoId)) || planes.data[0] || null
+    : planes.data
+  return {
+    data,
+    isLoading: planes.isLoading,
+    isError: planes.isError,
+    refetch: planes.refetch,
+  }
 }
 
 export function usePlanInfo(planId: string | undefined) {
@@ -236,6 +282,7 @@ export function useCrearPlan() {
       await Promise.all(
         MEAL_NAMES.map((name) => api.post('/api/v2/meal/', { plan: plan.id, name })),
       )
+      escribirPlanActivoId(plan.id)
       return plan
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['nutricion'] }),
@@ -342,5 +389,129 @@ export function useBuscarPorCodigo() {
       )
       return res.results[0] ?? null
     },
+  })
+}
+
+// ------------------------------------------------------- varios planes
+
+/** Marca un plan como activo (preferencia local) y refresca `usePlan`/`usePlanes`. */
+export function useElegirPlanActivo(): (id: string) => void {
+  // No hace falta invalidar nada: no cambia ningun dato del servidor. Basta
+  // con escribir la preferencia; `escribirPlanActivoId` ya avisa a `usePlan`.
+  return (id: string) => escribirPlanActivoId(id)
+}
+
+/**
+ * Borra un plan. Verificado contra el servidor real: DELETE en cascada borra
+ * tambien sus `meal` y, a diferencia de borrar solo una `meal`, TAMBIEN borra
+ * las entradas de `nutritiondiary` de ese plan (no las deja huerfanas). Es
+ * decir, borra el registro diario completo del plan, no solo la plantilla.
+ */
+export function useEliminarPlan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.del(`/api/v2/nutritionplan/${id}/`),
+    onSuccess: (_data, id) => {
+      if (leerPlanActivoId() === id) escribirPlanActivoId(null)
+      qc.invalidateQueries({ queryKey: ['nutricion'] })
+    },
+  })
+}
+
+/**
+ * Crea un plan nuevo a partir de otro: mismos objetivos de macros y mismas
+ * comidas (con los mismos alimentos dentro, si los tenia). El plan nuevo
+ * queda como activo.
+ */
+export function useDuplicarPlan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (origenId: string) => {
+      const origen = await api.get<NutritionPlanInfo>(
+        `/api/v2/nutritionplaninfo/${origenId}/?format=json`,
+      )
+      const nuevo = await api.post<NutritionPlan>('/api/v2/nutritionplan/', {
+        description: `${origen.description} (copia)`.slice(0, 80),
+        only_logging: origen.only_logging,
+        goal_energy: origen.goal_energy,
+        goal_protein: origen.goal_protein,
+        goal_carbohydrates: origen.goal_carbohydrates,
+        goal_fat: origen.goal_fat,
+        goal_fiber: origen.goal_fiber,
+      })
+      for (const meal of origen.meals) {
+        const nuevaComida = await api.post<Meal>('/api/v2/meal/', {
+          plan: nuevo.id,
+          name: meal.name,
+          time: meal.time,
+        })
+        await Promise.all(
+          meal.meal_items.map((item) =>
+            api.post('/api/v2/mealitem/', {
+              meal: nuevaComida.id,
+              ingredient: item.ingredient,
+              weight_unit: item.weight_unit,
+              amount: item.amount,
+            }),
+          ),
+        )
+      }
+      escribirPlanActivoId(nuevo.id)
+      return nuevo
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['nutricion'] }),
+  })
+}
+
+// ------------------------------------------------- comidas de la plantilla
+
+/** Renombra una comida del plan (Desayuno, Comida...). No toca sus alimentos. */
+export function useActualizarComida(planId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      api.patch<Meal>(`/api/v2/meal/${id}/`, { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.planInfo(planId) }),
+  })
+}
+
+/**
+ * Borra una comida entera (borra en cascada sus `mealitem`). Verificado: las
+ * entradas de `nutritiondiary` que apuntaban a esta comida NO se borran, se
+ * quedan con `meal: null` (dejan de aparecer agrupadas, pero no se pierden).
+ */
+export function useEliminarComida(planId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.del(`/api/v2/meal/${id}/`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.planInfo(planId) }),
+  })
+}
+
+// --------------------------------------------------------- copiar un dia
+
+/** Copia las entradas del diario de `fechaOrigen` a `fechaDestino` (mismo plan). */
+export function useCopiarDia(planId: string | undefined, fechaDestino: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (fechaOrigen: string) => {
+      const res = await api.get<Paginated<DiaryEntry>>(
+        `/api/v2/nutritiondiary/?plan=${planId}&datetime__date=${fechaOrigen}&limit=200`,
+      )
+      await Promise.all(
+        res.results.map((entrada) =>
+          api.post('/api/v2/nutritiondiary/', {
+            plan: planId,
+            meal: entrada.meal,
+            ingredient: entrada.ingredient,
+            weight_unit: entrada.weight_unit,
+            amount: entrada.amount,
+            datetime: `${fechaDestino}T12:00:00`,
+          }),
+        ),
+      )
+      return res.results.length
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.diario(planId, fechaDestino) }),
   })
 }

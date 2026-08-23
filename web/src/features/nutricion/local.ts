@@ -8,6 +8,7 @@
  * las pantallas ya llaman a estas funciones, no a `localStorage` directamente.
  */
 
+import { useSyncExternalStore } from 'react'
 import type { Ingredient } from './api'
 
 // ------------------------------------------------------------------ agua
@@ -30,6 +31,41 @@ export function escribirAgua(fecha: string, mililitros: number): number {
   const valor = Math.max(0, Math.round(mililitros))
   localStorage.setItem(aguaKey(fecha), String(valor))
   return valor
+}
+
+// -------------------------------------------------------------- plan activo
+
+// wger no tiene concepto de "plan activo": si hay varios hay que elegir uno
+// en el cliente. Esto SI es una preferencia local (no un dato ausente de
+// wger), pero vive aqui igualmente: es la unica capa que toca `localStorage`.
+const PLAN_ACTIVO_KEY = 'salaz.nutricion.planActivoId'
+
+export function leerPlanActivoId(): string | null {
+  return localStorage.getItem(PLAN_ACTIVO_KEY)
+}
+
+// Pub-sub minimo para que un cambio de plan activo re-renderice a quien lo lea
+// con `usePlanActivoId`. Hace falta: `localStorage` no dispara el evento nativo
+// `storage` en la MISMA pestana que escribe, asi que sin esto un componente que
+// ya estaba montado no se enteraria del cambio hasta un remount.
+type Listener = () => void
+const listeners = new Set<Listener>()
+
+/** `null` borra la preferencia (vuelve a usarse el plan mas reciente). */
+export function escribirPlanActivoId(id: string | null): void {
+  if (id === null) localStorage.removeItem(PLAN_ACTIVO_KEY)
+  else localStorage.setItem(PLAN_ACTIVO_KEY, id)
+  for (const l of listeners) l()
+}
+
+function suscribirPlanActivo(listener: Listener): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+/** Igual que `leerPlanActivoId`, pero re-renderiza el componente si cambia. */
+export function usePlanActivoId(): string | null {
+  return useSyncExternalStore(suscribirPlanActivo, leerPlanActivoId, () => null)
 }
 
 // ----------------------------------------------------- favoritos / recientes
