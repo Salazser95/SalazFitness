@@ -1,0 +1,753 @@
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<title>Plan Salaz 16 Semanas</title>
+
+<style>
+  :root {
+    --bg: #FBFAF7;
+    --surface: #FFFFFF;
+    --surface-2: #F2F0EB;
+    --border: #DFDBD2;
+    --fg: #1A1D23;
+    --fg-muted: #5C6270;
+    --fg-subtle: #8A9099;
+    --lime: #6B8E00;
+    --lime-soft: #EEF6D6;
+    --cyan: #0E7490;
+    --cyan-soft: #DCF2F8;
+    --violet: #6D4AC4;
+    --violet-soft: #EDE7FA;
+    --danger: #B4472E;
+    --radius: 14px;
+    --radius-lg: 20px;
+    --display: 'Barlow Condensed', 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --sans: 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0A0E1A;
+      --surface: #121828;
+      --surface-2: #1A2234;
+      --border: rgba(255,255,255,0.10);
+      --fg: #F1F5F9;
+      --fg-muted: #94A3B8;
+      --fg-subtle: #64748B;
+      --lime: #C6F135;
+      --lime-soft: rgba(198,241,53,0.12);
+      --cyan: #22D3EE;
+      --cyan-soft: rgba(34,211,238,0.12);
+      --violet: #A78BFA;
+      --violet-soft: rgba(167,139,250,0.14);
+      --danger: #F87171;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0A0E1A;
+    --surface: #121828;
+    --surface-2: #1A2234;
+    --border: rgba(255,255,255,0.10);
+    --fg: #F1F5F9;
+    --fg-muted: #94A3B8;
+    --fg-subtle: #64748B;
+    --lime: #C6F135;
+    --lime-soft: rgba(198,241,53,0.12);
+    --cyan: #22D3EE;
+    --cyan-soft: rgba(34,211,238,0.12);
+    --violet: #A78BFA;
+    --violet-soft: rgba(167,139,250,0.14);
+    --danger: #F87171;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .wrap {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+
+  h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; }
+  h1 { font-size: 44px; line-height: 1; letter-spacing: -0.01em; }
+  h2 { font-size: 27px; line-height: 1.1; margin-bottom: 4px; }
+  h3 { font-size: 20px; line-height: 1.2; }
+
+  .eyebrow {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--lime);
+  }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  section { margin-top: 44px; }
+  section > p:first-of-type { color: var(--fg-muted); margin-top: 6px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px;
+  }
+  .grid { display: grid; gap: 12px; }
+  .g2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  @media (max-width: 560px) {
+    .g3 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .g2 { grid-template-columns: 1fr; }
+    h1 { font-size: 36px; }
+  }
+
+  .stat .label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--fg-muted);
+  }
+  .stat .value {
+    font-family: var(--display); font-size: 38px; line-height: 1;
+    margin-top: 4px; font-variant-numeric: tabular-nums;
+  }
+  .stat .unit { font-size: 17px; color: var(--fg-muted); }
+
+  .scroller { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  th {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--fg-muted); white-space: nowrap;
+  }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+  }
+  .p-lime { background: var(--lime-soft); color: var(--lime); }
+  .p-cyan { background: var(--cyan-soft); color: var(--cyan); }
+  .p-violet { background: var(--violet-soft); color: var(--violet); }
+
+  .day { border-left: 3px solid var(--border); padding-left: 14px; }
+  .day.rest { border-left-color: var(--fg-subtle); opacity: 0.72; }
+  .day.push { border-left-color: var(--lime); }
+  .day.pull { border-left-color: var(--cyan); }
+  .day.legs { border-left-color: var(--violet); }
+  .day h3 { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  .day .dow { font-family: var(--sans); font-size: 12px; font-weight: 600;
+              letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-subtle); }
+  .day ol { margin: 8px 0 0; padding-left: 20px; }
+  .day li { margin: 3px 0; }
+  .day li span { color: var(--fg-subtle); font-size: 13.5px; }
+
+  .shop { list-style: none; margin: 0; padding: 0; }
+  .shop li { border-bottom: 1px solid var(--border); }
+  .shop li:last-child { border-bottom: none; }
+  .shop label {
+    display: flex; align-items: center; gap: 13px;
+    padding: 11px 4px; min-height: 52px; cursor: pointer;
+  }
+  .shop input[type="checkbox"] {
+    width: 26px; height: 26px; flex: 0 0 26px; margin: 0;
+    accent-color: var(--lime); cursor: pointer;
+  }
+  .shop .nm { flex: 1; min-width: 0; }
+  .shop .nm b { font-weight: 600; display: block; }
+  .shop .nm small { color: var(--fg-muted); font-size: 13px; }
+  .shop .pr { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .shop .pr b { display: block; font-weight: 600; }
+  .shop .pr small { color: var(--fg-subtle); font-size: 12px; }
+  .shop input:checked ~ .nm b,
+  .shop input:checked ~ .nm small { text-decoration: line-through; color: var(--fg-subtle); }
+
+  .tally {
+    position: sticky; bottom: 0; margin-top: 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 16px;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; flex-wrap: wrap; font-variant-numeric: tabular-nums;
+  }
+  .tally strong { font-family: var(--display); font-size: 25px; }
+
+  .note {
+    border-left: 3px solid var(--cyan); background: var(--cyan-soft);
+    padding: 11px 15px; border-radius: 0 var(--radius) var(--radius) 0;
+    font-size: 14.5px;
+  }
+  .warn { border-left-color: var(--danger); background: transparent;
+          border: 1px solid var(--border); border-left: 3px solid var(--danger); }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 40px 0 0; }
+  footer { margin-top: 22px; color: var(--fg-subtle); font-size: 13px; }
+
+  code { background: var(--surface-2); padding: 1px 6px; border-radius: 5px; font-size: 14px; }
+  a { color: var(--cyan); }
+  :focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; border-radius: 4px; }
+
+  @media print {
+    :root { --bg:#fff; --surface:#fff; --surface-2:#fff; --fg:#000;
+            --fg-muted:#444; --fg-subtle:#666; --border:#ccc;
+            --lime:#4A6300; --cyan:#0B5A70; --violet:#4A2F94;
+            --lime-soft:#fff; --cyan-soft:#fff; --violet-soft:#fff; }
+    .tally { position: static; }
+    section { break-inside: avoid; }
+  }
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">SalazFitness &middot; salaz1</p>
+  <h1>Plan de 16 semanas</h1>
+  <p style="color:var(--fg-muted);margin-top:8px;max-width:60ch">
+    Subir de 53 a 60 kg en músculo, sin volumen sucio. Seis días de entrenamiento,
+    cinco ejercicios por día, y una semana de fuerza por cada semana de marcado.
+    Empieza el <strong>lunes 24 de agosto de 2026</strong>.
+  </p>
+
+  <div class="grid g3" style="margin-top:24px">
+    <div class="card stat">
+      <div class="label">Peso ahora</div>
+      <div class="value">53<span class="unit"> kg</span></div>
+    </div>
+    <div class="card stat">
+      <div class="label">Objetivo</div>
+      <div class="value" style="color:var(--lime)">60<span class="unit"> kg</span></div>
+    </div>
+    <div class="card stat">
+      <div class="label">Altura</div>
+      <div class="value">167<span class="unit"> cm</span></div>
+    </div>
+  </div>
+
+  <div class="grid g3" style="margin-top:12px">
+    <div class="card stat">
+      <div class="label">Mantenimiento</div>
+      <div class="value tnum" style="font-size:31px">2.690<span class="unit"> kcal</span></div>
+    </div>
+    <div class="card stat">
+      <div class="label">Semana fuerza</div>
+      <div class="value tnum" style="font-size:31px;color:var(--lime)">3.140<span class="unit"> kcal</span></div>
+    </div>
+    <div class="card stat">
+      <div class="label">Semana marcado</div>
+      <div class="value tnum" style="font-size:31px;color:var(--cyan)">2.890<span class="unit"> kcal</span></div>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:16px">
+    Las <strong>dos</strong> semanas van en superávit. El objetivo es ganar peso: la semana
+    de marcado baja las calorías pero nunca por debajo del mantenimiento, para no perder
+    lo ganado. Metabolismo basal calculado con Mifflin-St Jeor sobre 167 cm y 53 kg,
+    multiplicado por un factor de actividad de 1,87 (seis días de entreno).
+  </p>
+
+  <section>
+    <p class="eyebrow">Entrenamiento</p>
+    <h2>La semana, día a día</h2>
+    <p>Seis días de entreno y el jueves de descanso, siempre en el mismo sitio de la semana.</p>
+
+    <div class="grid" style="margin-top:18px;gap:20px">
+      <div class="day push">
+        <h3>Empuje A <span class="dow">Lunes</span></h3>
+        <ol>
+          <li>Press de banca <span>&middot; básico</span></li>
+          <li>Press militar <span>&middot; básico</span></li>
+          <li>Fondos en paralelas <span>&middot; básico</span></li>
+          <li>Elevación lateral con mancuernas <span>&middot; accesorio</span></li>
+          <li>Extensión de tríceps en polea <span>&middot; accesorio</span></li>
+        </ol>
+      </div>
+      <div class="day pull">
+        <h3>Tirón A <span class="dow">Martes</span></h3>
+        <ol>
+          <li>Dominadas <span>&middot; básico</span></li>
+          <li>Remo con barra <span>&middot; básico</span></li>
+          <li>Jalón al pecho <span>&middot; básico</span></li>
+          <li>Jalón a la cara <span>&middot; accesorio</span></li>
+          <li>Curl con barra <span>&middot; accesorio</span></li>
+        </ol>
+      </div>
+      <div class="day legs">
+        <h3>Pierna A <span class="dow">Miércoles</span></h3>
+        <ol>
+          <li>Sentadilla con barra <span>&middot; básico</span></li>
+          <li>Peso muerto rumano <span>&middot; básico</span></li>
+          <li>Prensa de piernas <span>&middot; básico</span></li>
+          <li>Curl femoral <span>&middot; accesorio</span></li>
+          <li>Elevación de talones <span>&middot; accesorio</span></li>
+        </ol>
+      </div>
+      <div class="day rest">
+        <h3>Descanso <span class="dow">Jueves</span></h3>
+        <p style="margin:6px 0 0;color:var(--fg-muted);font-size:14.5px">
+          Día sin gimnasio. La dieta baja al entorno del mantenimiento porque no hay
+          batido post-entreno.
+        </p>
+      </div>
+      <div class="day push">
+        <h3>Empuje B <span class="dow">Viernes</span></h3>
+        <ol>
+          <li>Press inclinado con mancuernas <span>&middot; básico</span></li>
+          <li>Press Arnold <span>&middot; básico</span></li>
+          <li>Press de pecho en máquina <span>&middot; básico</span></li>
+          <li>Elevaciones frontales <span>&middot; accesorio</span></li>
+          <li>Extensión de tríceps sobre la cabeza <span>&middot; accesorio</span></li>
+        </ol>
+      </div>
+      <div class="day pull">
+        <h3>Tirón B <span class="dow">Sábado</span></h3>
+        <ol>
+          <li>Remo en T <span>&middot; básico</span></li>
+          <li>Dominadas con agarre supino <span>&middot; básico</span></li>
+          <li>Remo gironda <span>&middot; básico</span></li>
+          <li>Aperturas posteriores en polea <span>&middot; accesorio</span></li>
+          <li>Curl martillo <span>&middot; accesorio</span></li>
+        </ol>
+      </div>
+      <div class="day legs">
+        <h3>Pierna B y core <span class="dow">Domingo</span></h3>
+        <ol>
+          <li>Peso muerto convencional <span>&middot; básico</span></li>
+          <li>Zancadas con peso <span>&middot; básico</span></li>
+          <li>Extensión de cuádriceps <span>&middot; accesorio</span></li>
+          <li>Plancha <span>&middot; accesorio</span></li>
+          <li>Abdominales <span>&middot; accesorio</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Periodización</p>
+    <h2>Semana sí, semana no</h2>
+    <p>Los ejercicios no cambian nunca. Lo que cambia cada semana son las series,
+       las repeticiones, el descanso y el peso.</p>
+
+    <div class="scroller card" style="margin-top:16px;padding:6px 14px">
+      <table>
+        <thead>
+          <tr>
+            <th>Semanas</th><th>Tipo</th><th>Ejercicio</th>
+            <th class="num">Series</th><th class="num">Reps</th>
+            <th class="num">RIR</th><th class="num">Descanso</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td rowspan="2" class="tnum">1, 3, 5, 7&hellip;</td>
+            <td rowspan="2"><span class="pill p-lime">Fuerza</span></td>
+            <td>Básicos</td><td class="num">4</td><td class="num">5</td>
+            <td class="num">2</td><td class="num">150 s</td>
+          </tr>
+          <tr>
+            <td>Accesorios</td><td class="num">3</td><td class="num">8</td>
+            <td class="num">2</td><td class="num">90 s</td>
+          </tr>
+          <tr>
+            <td rowspan="2" class="tnum">2, 4, 6, 8&hellip;</td>
+            <td rowspan="2"><span class="pill p-cyan">Marcado</span></td>
+            <td>Básicos</td><td class="num">3</td><td class="num">12</td>
+            <td class="num">1</td><td class="num">75 s</td>
+          </tr>
+          <tr>
+            <td>Accesorios</td><td class="num">3</td><td class="num">15</td>
+            <td class="num">1</td><td class="num">45 s</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note" style="margin-top:14px">
+      <strong>El peso también alterna.</strong> En cada semana de fuerza el ejercicio principal
+      de cada día sube un 2,5 % respecto a la anterior de fuerza. En las semanas de marcado
+      se baja al 70 % de esa carga, que es lo que permite meter 12&ndash;15 repeticiones con
+      poco descanso. Los pesos de partida son de referencia: ajústalos en la primera sesión
+      real y la app se encarga del resto.
+    </p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Alimentación</p>
+    <h2>Cómo se reparte el día</h2>
+    <p>Comida y cena son lo mismo, del mismo tupper. Solo el desayuno cambia cada día.</p>
+
+    <div class="scroller card" style="margin-top:16px;padding:6px 14px">
+      <table>
+        <thead>
+          <tr><th>Toma</th><th>Qué</th><th class="num">kcal</th><th class="num">Proteína</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Desayuno</td><td>Rota entre A, B y C</td><td class="num">680&ndash;726</td><td class="num">30&ndash;55 g</td></tr>
+          <tr><td>Comida</td><td>Tupper del día</td><td class="num">~840</td><td class="num">54&ndash;73 g</td></tr>
+          <tr><td>Post-entreno</td><td>Batido con polvo</td><td class="num">393</td><td class="num">35 g</td></tr>
+          <tr><td>Merienda</td><td>Postre proteico con plátano y almendra</td><td class="num">357</td><td class="num">31 g</td></tr>
+          <tr><td>Cena</td><td>Tupper del día (igual que la comida)</td><td class="num">~840</td><td class="num">54&ndash;73 g</td></tr>
+          <tr style="border-top:2px solid var(--border)">
+            <td colspan="2"><strong>Día de entreno</strong></td>
+            <td class="num"><strong>~3.140</strong></td><td class="num"><strong>~205 g</strong></td>
+          </tr>
+          <tr>
+            <td colspan="2">Día de descanso <span style="color:var(--fg-subtle)">(sin batido)</span></td>
+            <td class="num">~2.750</td><td class="num">~170 g</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:14px;color:var(--fg-muted);font-size:14.5px">
+      Si algún día te quedas corto, la tostada con atún (337 kcal, 21 g de proteína)
+      es el comodín para sumar sin cocinar nada.
+    </p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Batch cooking</p>
+    <h2>Cuatro tandas, cada una da 4 tuppers</h2>
+    <p>Cada tanda son 2 comidas y 2 cenas: dos días resueltos. Cocinas dos veces por semana.</p>
+
+    <div class="grid" style="margin-top:18px;gap:14px">
+
+      <div class="card">
+        <h3>Pollo con arroz y brócoli</h3>
+        <p style="margin:2px 0 10px"><span class="pill p-lime">839 kcal</span>
+           <span class="pill p-cyan">56 g proteína</span>
+           <span class="pill p-violet">1,82 &euro;/ración</span></p>
+        <div class="scroller"><table>
+          <tbody>
+            <tr><td>Pechuga de pollo</td><td class="num">800 g</td></tr>
+            <tr><td>Arroz</td><td class="num">580 g</td></tr>
+            <tr><td>Brócoli</td><td class="num">400 g</td></tr>
+            <tr><td>Zanahoria</td><td class="num">200 g</td></tr>
+            <tr><td>Aceite de oliva</td><td class="num">40 g</td></tr>
+          </tbody>
+        </table></div>
+        <p style="font-size:14px;color:var(--fg-muted);margin:10px 0 0">
+          Corta la bandeja familiar en tiras y saltéala hasta dorar. Cuece el arroz.
+          Brócoli y zanahoria al vapor 8 minutos. Reparte en 4 tuppers.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Hamburguesas caseras con patata</h3>
+        <p style="margin:2px 0 10px"><span class="pill p-lime">850 kcal</span>
+           <span class="pill p-cyan">54 g proteína</span>
+           <span class="pill p-violet">3,58 &euro;/ración</span></p>
+        <div class="scroller"><table>
+          <tbody>
+            <tr><td>Carne picada de vacuno</td><td class="num">800 g</td></tr>
+            <tr><td>Patata</td><td class="num">2 kg</td></tr>
+            <tr><td>Judía verde</td><td class="num">400 g</td></tr>
+            <tr><td>Cebolla</td><td class="num">150 g</td></tr>
+            <tr><td>Aceite de oliva</td><td class="num">50 g</td></tr>
+          </tbody>
+        </table></div>
+        <p style="font-size:14px;color:var(--fg-muted);margin:10px 0 0">
+          Forma 8 hamburguesas con sal y pimienta, a la plancha. Patata en dados al horno
+          35 minutos a 200 &deg;C. Saltea la judía. Dos hamburguesas por tupper.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Merluza con macarrones y calabacín</h3>
+        <p style="margin:2px 0 10px"><span class="pill p-lime">840 kcal</span>
+           <span class="pill p-cyan">57 g proteína</span>
+           <span class="pill p-violet">2,39 &euro;/ración</span></p>
+        <div class="scroller"><table>
+          <tbody>
+            <tr><td>Merluza</td><td class="num">800 g</td></tr>
+            <tr><td>Macarrones</td><td class="num">640 g</td></tr>
+            <tr><td>Calabacín</td><td class="num">400 g</td></tr>
+            <tr><td>Tomate natural</td><td class="num">300 g</td></tr>
+            <tr><td>Aceite de oliva</td><td class="num">50 g</td></tr>
+          </tbody>
+        </table></div>
+        <p style="font-size:14px;color:var(--fg-muted);margin:10px 0 0">
+          Merluza al horno 15 minutos a 200 &deg;C. Macarrones al dente. Saltea calabacín
+          y tomate en dados. Mezcla y reparte.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Lentejas con pollo</h3>
+        <p style="margin:2px 0 10px"><span class="pill p-lime">821 kcal</span>
+           <span class="pill p-cyan">73 g proteína</span>
+           <span class="pill p-violet">1,56 &euro;/ración</span></p>
+        <div class="scroller"><table>
+          <tbody>
+            <tr><td>Lenteja pardina</td><td class="num">640 g</td></tr>
+            <tr><td>Pechuga de pollo</td><td class="num">600 g</td></tr>
+            <tr><td>Zanahoria</td><td class="num">200 g</td></tr>
+            <tr><td>Cebolla</td><td class="num">150 g</td></tr>
+            <tr><td>Pimiento rojo</td><td class="num">200 g</td></tr>
+            <tr><td>Aceite de oliva</td><td class="num">50 g</td></tr>
+          </tbody>
+        </table></div>
+        <p style="font-size:14px;color:var(--fg-muted);margin:10px 0 0">
+          Cuece las lentejas con la verdura en dados. Añade el pollo en tacos los últimos
+          10 minutos. La tanda más barata y la que más proteína lleva.
+        </p>
+      </div>
+
+    </div>
+
+    <h3 style="margin-top:26px">Desayunos, uno distinto cada día</h3>
+    <div class="scroller card" style="margin-top:10px;padding:6px 14px">
+      <table>
+        <thead><tr><th>Desayuno</th><th>Qué lleva</th><th class="num">kcal</th><th class="num">Prot.</th></tr></thead>
+        <tbody>
+          <tr><td><strong>A</strong></td><td>Avena 100 g, leche 300 ml, plátano 120 g, almendra 20 g</td><td class="num">710</td><td class="num">30 g</td></tr>
+          <tr><td><strong>B</strong></td><td>Pan 120 g, pavo 80 g, tomate, claras 150 g, 2 huevos</td><td class="num">680</td><td class="num">55 g</td></tr>
+          <tr><td><strong>C</strong></td><td>Yogur 250 g, queso batido 100 g, avena 80 g, manzana, almendra</td><td class="num">726</td><td class="num">33 g</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Lo que preguntaste</p>
+    <h2>Qué postre compensa más</h2>
+    <p>Ordenados por gramos de proteína por caloría, que es lo que importa cuando el
+       objetivo es músculo y no solo peso.</p>
+
+    <div class="scroller card" style="margin-top:16px;padding:6px 14px">
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th><th class="num">kcal/100 g</th><th class="num">Proteína</th>
+            <th class="num">g prot / kcal</th><th class="num">&euro;/kg</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="background:var(--lime-soft)">
+            <td><strong>Proteico natural 0 % MG</strong></td>
+            <td class="num">59</td><td class="num">10,0 g</td>
+            <td class="num"><strong>0,169</strong></td><td class="num">2,80 &euro;</td>
+          </tr>
+          <tr>
+            <td>Proteico fresa 0 % MG</td>
+            <td class="num">68</td><td class="num">8,3 g</td>
+            <td class="num">0,122</td><td class="num">3,23 &euro;</td>
+          </tr>
+          <tr>
+            <td>Proteico coco 0 % MG</td>
+            <td class="num">68</td><td class="num">8,3 g</td>
+            <td class="num">0,122</td><td class="num">3,23 &euro;</td>
+          </tr>
+          <tr>
+            <td>Natillas proteicas vainilla</td>
+            <td class="num">85</td><td class="num">10,0 g</td>
+            <td class="num">0,118</td><td class="num">3,65 &euro;</td>
+          </tr>
+          <tr>
+            <td>Yogur natural normal</td>
+            <td class="num">58</td><td class="num">3,8 g</td>
+            <td class="num">0,066</td><td class="num">1,33 &euro;</td>
+          </tr>
+          <tr>
+            <td>Yogur griego natural</td>
+            <td class="num">118</td><td class="num">3,5 g</td>
+            <td class="num">0,030</td><td class="num">1,93 &euro;</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note" style="margin-top:14px">
+      <strong>La respuesta corta:</strong> el proteico natural gana por bastante. Los de fresa,
+      coco y las natillas llevan fructosa o almidón añadidos, así que suben unas 10 kcal
+      y bajan algo de proteína, pero la diferencia es pequeña: si te gustan más, cómpralos,
+      porque la adherencia a la dieta pesa más que ese margen. El que <em>no</em> compensa
+      como fuente de proteína es el <strong>yogur griego natural</strong>: es el doble de
+      calórico que el proteico y tiene tres veces menos proteína, porque lo que lleva es grasa.
+    </p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Suplementos</p>
+    <h2>Batido y preentreno</h2>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h3>Batido post-entreno</h3>
+        <p style="margin:2px 0 10px"><span class="pill p-lime">393 kcal</span>
+           <span class="pill p-cyan">35 g proteína</span></p>
+        <div class="scroller"><table><tbody>
+          <tr><td>Proteína en polvo</td><td class="num">30 g</td></tr>
+          <tr><td>Leche</td><td class="num">300 ml</td></tr>
+          <tr><td>Plátano</td><td class="num">120 g</td></tr>
+          <tr><td>Miel</td><td class="num">20 g</td></tr>
+        </tbody></table></div>
+        <p style="font-size:14px;color:var(--fg-muted);margin:10px 0 0">
+          En la media hora siguiente al entreno. Seis a la semana.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Preentreno</h3>
+        <p style="margin:2px 0 10px"><span class="pill p-lime">8 kcal</span></p>
+        <p style="margin:0">
+          Una lata de bebida energética <strong>zero azúcar</strong> con agua, unos 30 minutos
+          antes de entrenar.
+        </p>
+        <p style="font-size:14px;color:var(--fg-muted);margin:10px 0 0">
+          En versión zero para que no te descuadre el objetivo del día: la normal son unas
+          110 kcal de azúcar por lata.
+        </p>
+      </div>
+    </div>
+
+    <p class="note warn" style="margin-top:14px">
+      <strong>Mercadona no vende proteína en polvo.</strong> Lo comprobé en su tienda online:
+      solo tienen creatina, barritas y batidos ya preparados. La proteína del batido hay que
+      comprarla en otro sitio (Decathlon, HSN, MyProtein, Amazon). Un bote de 1 kg cuesta
+      unos 22 &euro; y da para unos 33 batidos, así que dura más de un mes: en la lista de
+      abajo figura entera, pero no la vas a comprar cada quincena.
+    </p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Mercadona &middot; CP 08784 Piera</p>
+    <h2>La compra de 12 días</h2>
+    <p>Precios reales de la tienda online, leídos el 23 de agosto de 2026.
+       Marca cada línea según la vayas cogiendo: se guarda sola en el móvil.</p>
+
+    <ul class="shop card" style="margin-top:16px;padding:4px 14px" id="lista"></ul>
+
+    <div class="tally">
+      <span style="color:var(--fg-muted);font-size:14px">
+        <span id="hechos">0</span> de <span id="total-items">0</span> productos &middot;
+        <span id="gastado">0,00 &euro;</span> cogido
+      </span>
+      <strong id="total-eur">&mdash;</strong>
+    </div>
+
+    <p class="note" style="margin-top:16px">
+      El aceite (3 l) y la proteína en polvo (1 kg) son fondo de armario: duran varias
+      compras. Sin ellos, la compra recurrente se queda en unos <strong>144 &euro;</strong>,
+      es decir <strong>12 &euro; al día</strong>.
+    </p>
+  </section>
+
+  <section>
+    <p class="eyebrow">iPhone 14 Pro</p>
+    <h2>Llevarlo en el móvil</h2>
+    <ol style="padding-left:20px;margin-top:12px">
+      <li style="margin:8px 0">Con el ordenador encendido y el servidor arrancado, abre
+          <strong>Safari</strong> en el iPhone (tiene que estar en la misma wifi).</li>
+      <li style="margin:8px 0">Entra en <code>http://172.17.28.70:5173</code> y accede con
+          <strong>salaz1</strong> / <strong>123456</strong>.</li>
+      <li style="margin:8px 0">Toca <strong>Compartir</strong> y luego
+          <strong>Añadir a pantalla de inicio</strong>.</li>
+      <li style="margin:8px 0">Se abre a pantalla completa, sin barra del navegador,
+          como cualquier otra app.</li>
+    </ol>
+    <p class="note warn" style="margin-top:14px">
+      La app necesita que el ordenador esté encendido y el servidor arrancado, porque los
+      datos viven ahí. Esta página, en cambio, funciona sola: guárdala en Archivos o
+      imprímela como PDF y la tienes en el gimnasio y en el súper aunque el ordenador
+      esté apagado.
+    </p>
+  </section>
+
+  <hr>
+  <footer>
+    Generado el 23 de agosto de 2026 &middot; Precios de Mercadona sujetos a cambio &middot;
+    Los pesos de la rutina son de referencia y se ajustan en la primera sesión.
+  </footer>
+</div>
+
+<script>
+  const PRODUCTOS = [
+    ["Leche semidesnatada Hacendado", "1 pack de 6 l", "4,20 kg", 504, "0,84 €/l"],
+    ["Patatas", "2 bolsas de 3 kg", "4,00 kg", 930, "1,55 €/kg"],
+    ["Postre lácteo natural +Proteínas 10 g", "6 packs de 500 g", "3,00 kg", 840, "2,80 €/kg"],
+    ["Plátano de Canarias IGP", "a granel", "2,88 kg", 656, "2,30 €/kg"],
+    ["Bebida energética Zero Hacendado", "10 latas de 250 ml", "2,50 l", 400, "1,60 €/l"],
+    ["Pechugas enteras familiar de pollo", "2 bandejas de 1,14 kg", "2,20 kg", 1414, "6,20 €/kg"],
+    ["Preparado de carne picada vacuno", "2 bandejas de 1 kg", "1,60 kg", 2160, "10,80 €/kg"],
+    ["Pan de molde 100% integral familiar", "2 paquetes de 820 g", "1,56 kg", 230, "1,40 €/kg"],
+    ["Arroz redondo Hacendado", "2 paquetes de 1 kg", "1,16 kg", 230, "1,15 €/kg"],
+    ["Yogur natural Hacendado", "2 packs de 750 g", "1,00 kg", 200, "1,33 €/kg"],
+    ["Atún claro al natural Hacendado", "2 packs de 480 g", "960 g", 840, "11,67 €/kg"],
+    ["Brócoli", "3 piezas", "800 g", 342, "3,00 €/kg"],
+    ["Judía verde plana", "2 bolsas de 750 g", "800 g", 750, "5,00 €/kg"],
+    ["Filetes de merluza del Cabo sin piel", "2 bolsas de 600 g", "800 g", 1100, "9,17 €/kg"],
+    ["Avena molida Hacendado", "2 paquetes de 500 g", "720 g", 230, "2,30 €/kg"],
+    ["Tomate natural", "a granel", "700 g", 190, "1,90 €/kg"],
+    ["Macarrón Hacendado", "1 paquete de 1 kg", "640 g", 115, "1,15 €/kg"],
+    ["Lenteja pardina Hacendado", "1 paquete de 1 kg", "640 g", 195, "1,95 €/kg"],
+    ["Zanahorias", "1 bolsa de 1 kg", "600 g", 120, "1,20 €/kg"],
+    ["Claras de huevo líquidas", "1 brick de 1 l", "600 g", 285, "2,85 €/l"],
+    ["Manzanas Golden", "1 bolsa de 1,5 kg", "600 g", 330, "2,20 €/kg"],
+    ["Huevos grandes L", "1 docena", "8 ud", 305, "0,25 €/ud"],
+    ["Cebollas", "1 malla de 2 kg", "450 g", 360, "1,80 €/kg"],
+    ["Aceite de oliva virgen extra Hacendado", "1 botella de 3 l", "440 g", 1355, "4,52 €/l"],
+    ["Calabacín verde", "2 piezas", "400 g", 124, "1,60 €/kg"],
+    ["Almendra natural Hacendado", "2 bolsas de 200 g", "400 g", 460, "11,50 €/kg"],
+    ["Queso fresco batido desnatado 0% MG", "1 tarrina de 500 g", "400 g", 110, "2,20 €/kg"],
+    ["Pechuga de pavo Hacendado finas lonchas", "1 paquete de 400 g", "320 g", 395, "9,88 €/kg"],
+    ["Proteína whey en polvo", "1 bote de 1 kg · NO en Mercadona", "300 g", 2200, "22,00 €/kg"],
+    ["Pimiento rojo", "1 pieza", "200 g", 70, "2,50 €/kg"],
+    ["Miel de flores Hacendado", "1 bote de 1 kg", "200 g", 500, "5,00 €/kg"]
+  ];
+
+  const CLAVE = "salaz.plan.compra.v1";
+  const eur = c => (c / 100).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+
+  let marcados;
+  try { marcados = new Set(JSON.parse(localStorage.getItem(CLAVE) || "[]")); }
+  catch (e) { marcados = new Set(); }
+
+  const lista = document.getElementById("lista");
+  PRODUCTOS.forEach(function (p, i) {
+    const li = document.createElement("li");
+    const label = document.createElement("label");
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = marcados.has(i);
+    cb.addEventListener("change", function () {
+      if (cb.checked) { marcados.add(i); } else { marcados.delete(i); }
+      try { localStorage.setItem(CLAVE, JSON.stringify(Array.from(marcados))); } catch (e) {}
+      refrescar();
+    });
+
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    const b = document.createElement("b");
+    b.textContent = p[0];
+    const small = document.createElement("small");
+    small.textContent = p[1] + " · necesitas " + p[2];
+    nm.appendChild(b); nm.appendChild(small);
+
+    const pr = document.createElement("span");
+    pr.className = "pr";
+    const pb = document.createElement("b");
+    pb.textContent = eur(p[3]);
+    const ps = document.createElement("small");
+    ps.textContent = p[4];
+    pr.appendChild(pb); pr.appendChild(ps);
+
+    label.appendChild(cb); label.appendChild(nm); label.appendChild(pr);
+    li.appendChild(label);
+    lista.appendChild(li);
+  });
+
+  const totalCentimos = PRODUCTOS.reduce(function (s, p) { return s + p[3]; }, 0);
+  document.getElementById("total-items").textContent = PRODUCTOS.length;
+  document.getElementById("total-eur").textContent = eur(totalCentimos);
+
+  function refrescar() {
+    let gastado = 0;
+    marcados.forEach(function (i) { if (PRODUCTOS[i]) { gastado += PRODUCTOS[i][3]; } });
+    document.getElementById("hechos").textContent = marcados.size;
+    document.getElementById("gastado").textContent = eur(gastado);
+  }
+  refrescar();
+</script>

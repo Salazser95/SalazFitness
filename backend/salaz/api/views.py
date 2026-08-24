@@ -254,9 +254,18 @@ class ShoppingListViewSet(viewsets.ModelViewSet):
                 estimated_price = (price.price_per_100g / Decimal('100') * amount).quantize(
                     Decimal('0.01')
                 )
+            # Sin `name` la linea sale en blanco en la app: el frontend pinta
+            # item.name, no el nombre del ingrediente relacionado. Se copia
+            # aqui para que la lista sea legible en el supermercado.
+            ingrediente = Ingredient.objects.filter(pk=ingredient_id).first()
+            nombre = ingrediente.name if ingrediente else ''
+            if ingrediente is not None and ingrediente.brand:
+                nombre = f'{ingrediente.name} ({ingrediente.brand})'
+
             ShoppingListItem.objects.create(
                 shopping_list=shopping_list,
                 ingredient_id=ingredient_id,
+                name=nombre,
                 amount=amount,
                 unit=IngredientPrice.UNIT_GRAM,
                 estimated_price=estimated_price,

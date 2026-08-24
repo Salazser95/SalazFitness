@@ -151,3 +151,53 @@ export function sumaDeReparteBien(shares: readonly number[]): boolean {
 export function costeIngredienteCentimos(amountGramos: number, precioCentimosPorKg: number): number {
   return Math.round((amountGramos * precioCentimosPorKg) / 1000)
 }
+
+// ------------------------------------------------------ precio por unidad
+
+/**
+ * Normaliza una cantidad a kg o l segun la unidad del contrato (`g`, `kg`,
+ * `ml`, `l`, `unit`). Devuelve `null` para `unit` (huevos, packs...), donde
+ * no tiene sentido un precio por kg/l.
+ */
+function cantidadNormalizada(amount: number, unit: string): { valor: number; etiqueta: 'kg' | 'l' } | null {
+  switch (unit) {
+    case 'g':
+      return { valor: amount / 1000, etiqueta: 'kg' }
+    case 'kg':
+      return { valor: amount, etiqueta: 'kg' }
+    case 'ml':
+      return { valor: amount / 1000, etiqueta: 'l' }
+    case 'l':
+      return { valor: amount, etiqueta: 'l' }
+    default:
+      return null
+  }
+}
+
+/**
+ * Precio por kg o por l de una linea (o por unidad si `unit` es `unit`),
+ * que es como se comparan precios de verdad en el super. Texto ya
+ * formateado en euros, o `null` si no hay cantidad valida para calcularlo.
+ *
+ * `amount` admite string ademas de number porque el backend serializa sus
+ * DecimalField como texto (comprobado contra la API real: un `PurchaseItem`
+ * llega con `"amount": "4200.00"` aunque el contrato en tipos.ts lo declare
+ * `number`).
+ */
+export function precioPorUnidadTexto(
+  price: string,
+  amount: number | string,
+  unit: string,
+): string | null {
+  const cantidad = Number(amount)
+  if (!Number.isFinite(cantidad) || cantidad <= 0) return null
+
+  const precioEur = eurosACentimos(price) / 100
+  const normalizada = cantidadNormalizada(cantidad, unit)
+  if (normalizada) {
+    if (normalizada.valor <= 0) return null
+    return `${eur(precioEur / normalizada.valor)}/${normalizada.etiqueta}`
+  }
+  // unit === 'unit' u otra no reconocida: precio por unidad suelta.
+  return `${eur(precioEur / cantidad)}/ud`
+}

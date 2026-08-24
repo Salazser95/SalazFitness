@@ -25,7 +25,8 @@ function sumarDias(iso: string, dias: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-function Casilla({ marcado, onToggle, ariaLabel }: { marcado: boolean; onToggle: () => void; ariaLabel: string }) {
+/** 44x44 minimo: se usa de pie en el super, con una mano. Reutilizada por CompraDetalle. */
+export function Casilla({ marcado, onToggle, ariaLabel }: { marcado: boolean; onToggle: () => void; ariaLabel: string }) {
   return (
     <button
       type="button"
