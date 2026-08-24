@@ -30,6 +30,7 @@ from salaz.models import (
     ShoppingList,
     ShoppingListItem,
 )
+from wger.nutrition.models import Ingredient
 
 
 class HouseholdViewSet(viewsets.ModelViewSet):
