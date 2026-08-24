@@ -1,27 +1,73 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BedDouble, Dumbbell, Flame } from 'lucide-react'
+import { ArrowRightLeft, BedDouble, Dumbbell, Flame, Undo2 } from 'lucide-react'
 
 import {
   Button,
   Card,
   EmptyState,
   ErrorState,
+  Modal,
   PageTitle,
   SectionLabel,
   SkeletonList,
   StatCard,
 } from '../../components/ui'
 import { int, num, shortDate, today } from '../../lib/format'
-import {
-  pickActiveRoutine,
-  useDateSequenceGym,
-  useRoutines,
-  useWorkoutSessions,
-} from '../entreno/api'
+import { useActiveRoutine, useDateSequenceGym, useWorkoutSessions, type DiaSecuencia } from '../entreno/api'
+import { aplicarMovidos, deshacerMovido, moverEntreno, useMovidos } from '../entreno/local'
 import { useWeightEntries } from '../yo/api'
 import { claveSemana, pesoActualConDelta } from '../yo/utils'
 import { pickActivePlan, useCaloriasHoy, useNutritionPlans } from './api'
+
+/**
+ * Lista de dias cercanos a los que se puede mover el entreno de hoy. Solo
+ * fechas ya presentes en la secuencia cargada (dentro del rango de la
+ * rutina), para no ofrecer un destino invalido.
+ */
+function ModalMoverDia({
+  open,
+  onClose,
+  opciones,
+  onElegir,
+}: {
+  open: boolean
+  onClose: () => void
+  opciones: DiaSecuencia[]
+  onElegir: (fecha: string) => void
+}) {
+  return (
+    <Modal open={open} onClose={onClose} title="Mover el entreno de hoy">
+      <p className="mb-3 text-sm text-fg-muted">
+        Elige el dia al que quieres pasar el entreno de hoy. Solo cambia esta semana: la rutina no
+        se modifica.
+      </p>
+      {opciones.length === 0 ? (
+        <p className="text-sm text-fg-subtle">No hay mas dias en el rango de esta rutina.</p>
+      ) : (
+        <ul className="space-y-2">
+          {opciones.map((d) => {
+            const descanso = !d.day || d.day.is_rest
+            return (
+              <li key={d.date}>
+                <button
+                  type="button"
+                  onClick={() => onElegir(d.date)}
+                  className="flex h-14 w-full items-center justify-between rounded-[14px] border border-border bg-surface-2 px-4 text-left transition-colors duration-150 hover:bg-surface-3"
+                >
+                  <span className="capitalize text-fg">{shortDate(d.date)}</span>
+                  <span className={`text-sm ${descanso ? 'text-fg-subtle' : 'text-fg-muted'}`}>
+                    {descanso ? 'Descanso' : d.day!.name}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </Modal>
+  )
+}
 
 function tituloDeHoy(): string {
   const s = new Date().toLocaleDateString('es-ES', {
@@ -37,16 +83,21 @@ export default function HoyPage() {
   const fecha = today()
 
   // ---- Entreno de hoy ----
-  const routinesQ = useRoutines()
-  const activeRoutine = useMemo(
-    () => (routinesQ.data ? pickActiveRoutine(routinesQ.data) : null),
-    [routinesQ.data],
-  )
+  const activeRoutineQ = useActiveRoutine()
+  const activeRoutine = activeRoutineQ.data
   const secuenciaQ = useDateSequenceGym(activeRoutine?.id ?? null)
 
+  // Desplazamientos puntuales guardados en localStorage (ver features/entreno/local.ts):
+  // se aplican encima de la secuencia real que devuelve el backend, sin tocar la rutina.
+  const movidos = useMovidos(activeRoutine?.id ?? null)
+  const secuencia = useMemo(
+    () => (secuenciaQ.data ? aplicarMovidos(secuenciaQ.data, movidos) : secuenciaQ.data),
+    [secuenciaQ.data, movidos],
+  )
+
   const diaHoy = useMemo(
-    () => secuenciaQ.data?.find((d) => d.date === fecha) ?? null,
-    [secuenciaQ.data, fecha],
+    () => secuencia?.find((d) => d.date === fecha) ?? null,
+    [secuencia, fecha],
   )
   const esDescanso = diaHoy ? !diaHoy.day || diaHoy.day.is_rest : false
 
@@ -60,14 +111,23 @@ export default function HoyPage() {
   )
 
   const proximoEntreno = useMemo(() => {
-    if (!secuenciaQ.data) return null
-    return secuenciaQ.data.find((d) => d.date > fecha && d.day && !d.day.is_rest) ?? null
-  }, [secuenciaQ.data, fecha])
+    if (!secuencia) return null
+    return secuencia.find((d) => d.date > fecha && d.day && !d.day.is_rest) ?? null
+  }, [secuencia, fecha])
 
   const proximosDias = useMemo(
-    () => (secuenciaQ.data ?? []).filter((d) => d.date > fecha).slice(0, 5),
-    [secuenciaQ.data, fecha],
+    () => (secuencia ?? []).filter((d) => d.date > fecha).slice(0, 5),
+    [secuencia, fecha],
   )
+
+  // El entreno de hoy se movio A otra fecha (hoy queda con lo que tuviera esa fecha).
+  const movidoAFecha = movidos[fecha]
+  // El entreno de hoy VINO de otra fecha (alguien lo movio hacia hoy).
+  const movidoDesdeFecha = useMemo(
+    () => Object.entries(movidos).find(([, hasta]) => hasta === fecha)?.[0] ?? null,
+    [movidos, fecha],
+  )
+  const [modalMoverAbierto, setModalMoverAbierto] = useState(false)
 
   // ---- Estadisticas ----
   const pesoQ = useWeightEntries()
@@ -97,16 +157,16 @@ export default function HoyPage() {
       {/* Tarjeta principal: que toca hoy */}
       <SectionLabel>Entreno de hoy</SectionLabel>
 
-      {routinesQ.isLoading ? <SkeletonList rows={1} height="h-44" /> : null}
+      {activeRoutineQ.isLoading ? <SkeletonList rows={1} height="h-44" /> : null}
 
-      {routinesQ.isError ? (
+      {activeRoutineQ.isError ? (
         <ErrorState
           message="No se ha podido cargar tu rutina."
-          onRetry={() => void routinesQ.refetch()}
+          onRetry={() => void activeRoutineQ.refetch()}
         />
       ) : null}
 
-      {routinesQ.data && !activeRoutine ? (
+      {activeRoutine === null ? (
         <EmptyState
           icon={Dumbbell}
           title="Sin rutina activa"
@@ -122,6 +182,25 @@ export default function HoyPage() {
           message="No se ha podido cargar el entreno de hoy."
           onRetry={() => void secuenciaQ.refetch()}
         />
+      ) : null}
+
+      {activeRoutine && diaHoy && (movidoAFecha || movidoDesdeFecha) ? (
+        <p className="flex items-center gap-2 text-xs text-fg-subtle">
+          <ArrowRightLeft size={14} aria-hidden="true" />
+          {movidoAFecha
+            ? `Moviste el entreno de hoy al ${shortDate(movidoAFecha)}.`
+            : `Este entreno estaba programado el ${shortDate(movidoDesdeFecha!)}.`}
+          <button
+            type="button"
+            onClick={() =>
+              deshacerMovido(activeRoutine.id, movidoAFecha ? fecha : movidoDesdeFecha!)
+            }
+            className="inline-flex items-center gap-1 font-semibold text-fg-muted underline-offset-2 hover:underline"
+          >
+            <Undo2 size={12} aria-hidden="true" />
+            Deshacer
+          </button>
+        </p>
       ) : null}
 
       {activeRoutine && diaHoy && !esDescanso ? (
@@ -143,6 +222,18 @@ export default function HoyPage() {
             <Dumbbell size={20} aria-hidden="true" />
             Empezar entreno
           </Button>
+          {!movidoAFecha ? (
+            <Button
+              full
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={() => setModalMoverAbierto(true)}
+            >
+              <ArrowRightLeft size={16} aria-hidden="true" />
+              Mover a otro dia
+            </Button>
+          ) : null}
         </Card>
       ) : null}
 
@@ -157,6 +248,16 @@ export default function HoyPage() {
           </p>
         </Card>
       ) : null}
+
+      <ModalMoverDia
+        open={modalMoverAbierto}
+        onClose={() => setModalMoverAbierto(false)}
+        opciones={proximosDias}
+        onElegir={(destino) => {
+          if (activeRoutine) moverEntreno(activeRoutine.id, fecha, destino)
+          setModalMoverAbierto(false)
+        }}
+      />
 
       {/* Estadisticas */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">

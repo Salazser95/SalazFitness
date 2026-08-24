@@ -1,8 +1,10 @@
 import { useMemo } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { UseQueryResult } from '@tanstack/react-query'
 
 import { api, fetchAll } from '../../lib/api'
 import { today } from '../../lib/format'
+import { useRutinaActivaId } from './local'
 
 /**
  * Capa de datos de entrenamiento contra la API de wger.
@@ -115,6 +117,34 @@ export function pickActiveRoutine(routines: Routine[]): Routine | null {
   const activas = routines.filter((r) => r.start <= hoy && hoy <= r.end)
   if (activas.length === 0) return null
   return [...activas].sort((a, b) => (a.start < b.start ? 1 : -1))[0]
+}
+
+/**
+ * La rutina activa "de verdad": la elegida a mano por el usuario (boton
+ * Activar, guardada en localStorage) si todavia existe entre sus rutinas; si
+ * no hay eleccion guardada, o esa rutina ya no existe, cae en el calculo por
+ * fechas de `pickActiveRoutine` (comportamiento de siempre). Usa
+ * `useRutinaActivaId` (useSyncExternalStore) para reaccionar al cambio sin
+ * recargar la pagina, igual que `usePlan` en features/nutricion/api.ts.
+ */
+export function useActiveRoutine(): {
+  data: Routine | null | undefined
+  isLoading: boolean
+  isError: boolean
+  refetch: UseQueryResult<Routine[]>['refetch']
+} {
+  const routines = useRoutines()
+  const activaId = useRutinaActivaId()
+  const data = routines.data
+    ? (activaId !== null && routines.data.find((r) => r.id === activaId)) ||
+      pickActiveRoutine(routines.data)
+    : routines.data
+  return {
+    data,
+    isLoading: routines.isLoading,
+    isError: routines.isError,
+    refetch: routines.refetch,
+  }
 }
 
 export function useRoutine(routineId: number | null) {
@@ -386,6 +416,48 @@ export type NuevaSerie = {
 export function useRegistrarSerie() {
   return useMutation({
     mutationFn: (body: NuevaSerie) => api.post<WorkoutLog>('/api/v2/workoutlog/', body),
+  })
+}
+
+export type CambiosSerie = {
+  weight?: string
+  repetitions?: string
+  rir?: string
+}
+
+/**
+ * PATCH /api/v2/workoutlog/{id}/ — verificado con curl real contra el
+ * servidor (OPTIONS confirma "Allow: GET, PUT, PATCH, DELETE, HEAD,
+ * OPTIONS"; un PATCH de weight devuelve 200 con el registro actualizado).
+ * Para corregir una serie ya registrada: peso, repeticiones o RIR mal
+ * anotados durante el entreno.
+ */
+export function useActualizarSerie() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: CambiosSerie }) =>
+      api.patch<WorkoutLog>(`/api/v2/workoutlog/${id}/`, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['entreno', 'logs-session'] })
+      void qc.invalidateQueries({ queryKey: ['entreno', 'logs-exercise'] })
+    },
+  })
+}
+
+/**
+ * DELETE /api/v2/workoutlog/{id}/ — verificado con curl real: se creo un
+ * registro de prueba, se borro con DELETE (204) y un GET posterior confirmo
+ * 404. Para quitar una serie que en realidad no se hizo (el ejercicio se
+ * salto) sin perder el resto del progreso registrado.
+ */
+export function useEliminarSerie() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.del<void>(`/api/v2/workoutlog/${id}/`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['entreno', 'logs-session'] })
+      void qc.invalidateQueries({ queryKey: ['entreno', 'logs-exercise'] })
+    },
   })
 }
 

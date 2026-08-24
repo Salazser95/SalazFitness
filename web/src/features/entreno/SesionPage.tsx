@@ -6,15 +6,16 @@ import { Button, Card, EmptyState, ErrorState, Modal, SkeletonList, Thumbnail } 
 import { useAjustes } from '../../lib/settings'
 import { today } from '../../lib/format'
 import {
-  pickActiveRoutine,
+  useActiveRoutine,
   useCrearSesion,
   useDateSequenceGym,
+  useEliminarSerie,
   useExerciseMedia,
   useExerciseNames,
   useRegistrarSerie,
-  useRoutines,
   type SetConfigData,
 } from './api'
+import { aplicarMovidos, useMovidos } from './local'
 import { RestTimer } from './components/RestTimer'
 import { SerieRow } from './components/SerieRow'
 import {
@@ -44,16 +45,21 @@ export default function SesionPage() {
   const navigate = useNavigate()
   const fecha = today()
 
-  const routines = useRoutines()
-  const activeRoutine = useMemo(
-    () => (routines.data ? pickActiveRoutine(routines.data) : null),
-    [routines.data],
-  )
+  const activeRoutineQ = useActiveRoutine()
+  const activeRoutine = activeRoutineQ.data
   const secuencia = useDateSequenceGym(activeRoutine?.id ?? null)
 
+  // Mismo desplazamiento puntual que aplica HoyPage (ver features/entreno/local.ts):
+  // lo que aqui se entrena tiene que coincidir con lo que Hoy muestra para la fecha.
+  const movidos = useMovidos(activeRoutine?.id ?? null)
+  const secuenciaAplicada = useMemo(
+    () => (secuencia.data ? aplicarMovidos(secuencia.data, movidos) : secuencia.data),
+    [secuencia.data, movidos],
+  )
+
   const diaHoy = useMemo(
-    () => secuencia.data?.find((d) => d.date === fecha) ?? null,
-    [secuencia.data, fecha],
+    () => secuenciaAplicada?.find((d) => d.date === fecha) ?? null,
+    [secuenciaAplicada, fecha],
   )
 
   const esDescanso = diaHoy ? !diaHoy.day || diaHoy.day.is_rest : false
@@ -92,6 +98,7 @@ export default function SesionPage() {
       dayId: diaHoy.day.id,
       fecha,
       ejercicioActual: 0,
+      sesionId: null,
       ejercicios: ejerciciosBase.map((e) => ({
         exercise: e.exercise,
         series: e.sets.map((s, i) => ({
@@ -103,6 +110,7 @@ export default function SesionPage() {
           rir: s.rir ?? '',
           descansoSeg: s.rest ? Math.round(Number(s.rest)) : DESCANSO_POR_DEFECTO,
           completada: false,
+          logId: null,
         })),
       })),
     })
@@ -114,17 +122,19 @@ export default function SesionPage() {
 
   const crearSesion = useCrearSesion()
   const registrarSerie = useRegistrarSerie()
+  const eliminarSerie = useEliminarSerie()
+  const [desmarcandoIdx, setDesmarcandoIdx] = useState<number | null>(null)
 
-  if (routines.isLoading || secuencia.isLoading) {
+  if (activeRoutineQ.isLoading || secuencia.isLoading) {
     return <SkeletonList rows={4} height="h-24" />
   }
 
-  if (routines.isError || secuencia.isError) {
+  if (activeRoutineQ.isError || secuencia.isError) {
     return (
       <ErrorState
         message="No se ha podido cargar el entreno de hoy."
         onRetry={() => {
-          void routines.refetch()
+          void activeRoutineQ.refetch()
           void secuencia.refetch()
         }}
       />
@@ -209,22 +219,77 @@ export default function SesionPage() {
     })
   }
 
+  /**
+   * Desmarca una serie ya completada (se salto el ejercicio o se marco por
+   * error). Si esa serie ya tenia un workoutlog guardado en el backend
+   * (`logId`: pasa cuando "Terminar" fallo a mitad y se reintenta, ver
+   * `terminarEntreno`), lo borra primero para que el progreso guardado
+   * refleje de verdad lo que se hizo.
+   */
+  async function desmarcarSerie(serieIdx: number) {
+    if (!progreso) return
+    const serie = progreso.ejercicios[idx].series[serieIdx]
+    if (!serie.completada) return
+
+    if (serie.logId) {
+      setDesmarcandoIdx(serieIdx)
+      setError(null)
+      try {
+        await eliminarSerie.mutateAsync(serie.logId)
+      } catch {
+        setError('No se ha podido borrar el registro guardado. Prueba otra vez.')
+        setDesmarcandoIdx(null)
+        return
+      }
+      setDesmarcandoIdx(null)
+    }
+
+    setProgreso((p) => {
+      if (!p) return p
+      const ejercicios = p.ejercicios.map((e, i) =>
+        i !== idx
+          ? e
+          : {
+              ...e,
+              series: e.series.map((s, j) =>
+                j !== serieIdx ? s : { ...s, completada: false, logId: null },
+              ),
+            },
+      )
+      return { ...p, ejercicios }
+    })
+  }
+
+  /**
+   * Crea la sesion (si no existe todavia) y registra cada serie completada
+   * que aun no tenga `logId`. Guarda el id de sesion y de cada log en cuanto
+   * se crean: si algo falla a mitad (red, servidor), un reintento no
+   * duplica lo que ya se guardo, solo continua donde se quedo.
+   */
   async function terminarEntreno() {
     if (!progreso || !activeRoutine || !diaHoy?.day) return
     setError(null)
     setEnviando(true)
     try {
-      const sesion = await crearSesion.mutateAsync({
-        routine: activeRoutine.id,
-        day: diaHoy.day.id,
-        date: fecha,
-      })
+      let sesionId = progreso.sesionId
+      if (!sesionId) {
+        const sesion = await crearSesion.mutateAsync({
+          routine: activeRoutine.id,
+          day: diaHoy.day.id,
+          date: fecha,
+        })
+        sesionId = sesion.id
+        setProgreso((p) => (p ? { ...p, sesionId } : p))
+      }
+
       const ahora = new Date().toISOString()
-      for (const ej of progreso.ejercicios) {
-        for (const s of ej.series) {
-          if (!s.completada) continue
-          await registrarSerie.mutateAsync({
-            session: sesion.id,
+      for (let ei = 0; ei < progreso.ejercicios.length; ei++) {
+        const ej = progreso.ejercicios[ei]
+        for (let si = 0; si < ej.series.length; si++) {
+          const s = ej.series[si]
+          if (!s.completada || s.logId) continue
+          const log = await registrarSerie.mutateAsync({
+            session: sesionId,
             routine: activeRoutine.id,
             exercise: s.exercise,
             slot_entry: s.slotEntryId,
@@ -234,12 +299,23 @@ export default function SesionPage() {
             rest: s.descansoSeg || undefined,
             date: ahora,
           })
+          setProgreso((p) => {
+            if (!p) return p
+            const ejercicios = p.ejercicios.map((e, i) =>
+              i !== ei
+                ? e
+                : { ...e, series: e.series.map((ss, j) => (j !== si ? ss : { ...ss, logId: log.id })) },
+            )
+            return { ...p, ejercicios }
+          })
         }
       }
       borrarProgreso(activeRoutine.id, fecha)
       navigate('/entreno/historial')
     } catch {
-      setError('No se ha podido guardar el entreno. Los datos siguen aqui, prueba otra vez.')
+      setError(
+        'No se ha podido guardar el entreno entero. Lo que ya se guardo no se repetira: pulsa Terminar otra vez para completar el resto.',
+      )
     } finally {
       setEnviando(false)
     }
@@ -325,9 +401,11 @@ export default function SesionPage() {
             rir={s.rir}
             descansoSeg={s.descansoSeg}
             completada={s.completada}
+            desmarcando={desmarcandoIdx === j}
             onPesoChange={(v) => actualizarCampo(j, 'peso', v)}
             onRepeticionesChange={(v) => actualizarCampo(j, 'repeticiones', v)}
             onCompletar={() => completarSerie(j)}
+            onDesmarcar={() => void desmarcarSerie(j)}
           />
         ))}
       </div>

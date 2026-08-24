@@ -1,21 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CalendarDays, ChevronRight, Dumbbell, Plus, Trash2 } from 'lucide-react'
+import { CalendarDays, ChevronRight, Dumbbell, Plus, Trash2, Zap } from 'lucide-react'
 
 import { Button, Card, ConfirmModal, EmptyState, ErrorState, PageTitle, SkeletonList } from '../../components/ui'
-import { shortDate } from '../../lib/format'
-import { pickActiveRoutine, useEliminarRutina, useRoutines, type Routine } from './api'
+import { shortDate, today } from '../../lib/format'
+import { ActivarRutinaModal } from './components/ActivarRutinaModal'
+import { escribirRutinaActivaId } from './local'
+import { useActiveRoutine, useEliminarRutina, useRoutines, type Routine } from './api'
 
 export default function RutinasListaPage() {
   const navigate = useNavigate()
   const routines = useRoutines()
+  const activeRoutine = useActiveRoutine()
   const eliminar = useEliminarRutina()
   const [rutinaABorrar, setRutinaABorrar] = useState<Routine | null>(null)
+  const [rutinaParaDesplazar, setRutinaParaDesplazar] = useState<Routine | null>(null)
 
-  const activeId = useMemo(
-    () => (routines.data ? pickActiveRoutine(routines.data)?.id : undefined),
-    [routines.data],
-  )
+  const activeId = activeRoutine.data?.id
+
+  /** Guarda la eleccion; si sus fechas no cubren hoy, ofrece desplazarlas (sin forzarlo). */
+  function activar(r: Routine) {
+    escribirRutinaActivaId(r.id)
+    const hoy = today()
+    const cubreHoy = r.start <= hoy && hoy <= r.end
+    if (!cubreHoy) setRutinaParaDesplazar(r)
+  }
 
   return (
     <>
@@ -91,6 +100,16 @@ export default function RutinasListaPage() {
                     </div>
                     <ChevronRight size={20} className="shrink-0 text-fg-subtle" aria-hidden="true" />
                   </button>
+                  {r.id !== activeId ? (
+                    <button
+                      type="button"
+                      onClick={() => activar(r)}
+                      aria-label={`Activar rutina ${r.name}`}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-subtle transition-colors duration-150 hover:bg-primary/10 hover:text-primary"
+                    >
+                      <Zap size={18} aria-hidden="true" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => setRutinaABorrar(r)}
@@ -114,6 +133,8 @@ export default function RutinasListaPage() {
         title={`Eliminar "${rutinaABorrar?.name ?? ''}"`}
         description="Se borraran tambien todos sus dias y ejercicios configurados. No se puede deshacer."
       />
+
+      <ActivarRutinaModal routine={rutinaParaDesplazar} onClose={() => setRutinaParaDesplazar(null)} />
     </>
   )
 }

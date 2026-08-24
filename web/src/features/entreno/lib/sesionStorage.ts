@@ -15,6 +15,8 @@ export type SerieProgreso = {
   rir: string
   descansoSeg: number
   completada: boolean
+  /** id del workoutlog ya creado en el backend para esta serie, o null si aun no se ha guardado. */
+  logId: string | null
 }
 
 export type EjercicioProgreso = {
@@ -28,6 +30,8 @@ export type SesionProgreso = {
   fecha: string
   ejercicioActual: number
   ejercicios: EjercicioProgreso[]
+  /** id del workoutsession ya creado en el backend, o null si "Terminar" aun no se ha pulsado con exito. */
+  sesionId: string | null
 }
 
 const PREFIX = 'salaz.sesion.'

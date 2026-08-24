@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { BedDouble, ChevronRight, Copy, Pencil, Trash2 } from 'lucide-react'
+import { BedDouble, ChevronRight, Copy, Pencil, Trash2, Zap } from 'lucide-react'
 
 import {
   Button,
@@ -14,11 +14,15 @@ import {
   SkeletonList,
 } from '../../components/ui'
 import { shortDate, today } from '../../lib/format'
+import { ActivarRutinaModal } from './components/ActivarRutinaModal'
+import { escribirRutinaActivaId } from './local'
 import {
+  useActiveRoutine,
   useDuplicarRutina,
   useEliminarRutina,
   useExerciseNames,
   useRoutineStructure,
+  type Routine,
   type StructureSlotEntry,
 } from './api'
 
@@ -120,9 +124,11 @@ export default function RutinaDetallePage() {
   const routineId = id ? Number(id) : null
 
   const structure = useRoutineStructure(routineId)
+  const activeRoutine = useActiveRoutine()
   const eliminar = useEliminarRutina()
   const [confirmarBorrado, setConfirmarBorrado] = useState(false)
   const [modalDuplicarAbierto, setModalDuplicarAbierto] = useState(false)
+  const [rutinaParaDesplazar, setRutinaParaDesplazar] = useState<Routine | null>(null)
 
   const exerciseIds = useMemo(
     () =>
@@ -145,16 +151,40 @@ export default function RutinaDetallePage() {
   }
 
   const rutina = structure.data
+  const esActiva = activeRoutine.data?.id === rutina.id
+
+  function activar() {
+    escribirRutinaActivaId(rutina.id)
+    const hoy = today()
+    const cubreHoy = rutina.start <= hoy && hoy <= rutina.end
+    if (!cubreHoy) setRutinaParaDesplazar(rutina)
+  }
 
   return (
     <>
-      <PageTitle>{rutina.name}</PageTitle>
+      <PageTitle
+        right={
+          esActiva ? (
+            <span className="mb-1 shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-primary">
+              Activa
+            </span>
+          ) : undefined
+        }
+      >
+        {rutina.name}
+      </PageTitle>
       <p className="-mt-3 mb-3 text-sm text-fg-muted">
         {shortDate(rutina.start)} - {shortDate(rutina.end)}
         {rutina.description ? ` · ${rutina.description}` : ''}
       </p>
 
       <div className="mb-5 flex flex-wrap gap-2">
+        {!esActiva ? (
+          <Button size="sm" onClick={activar}>
+            <Zap size={16} aria-hidden="true" />
+            Activar
+          </Button>
+        ) : null}
         <Button variant="secondary" size="sm" onClick={() => navigate(`/entreno/rutina/${rutina.id}/editar`)}>
           <Pencil size={16} aria-hidden="true" />
           Editar
@@ -240,6 +270,8 @@ export default function RutinaDetallePage() {
         start={rutina.start}
         end={rutina.end}
       />
+
+      <ActivarRutinaModal routine={rutinaParaDesplazar} onClose={() => setRutinaParaDesplazar(null)} />
     </>
   )
 }

@@ -12,9 +12,13 @@ type SerieRowProps = {
   rir?: string | null
   descansoSeg?: number | null
   completada: boolean
+  /** Deshaciendo: si la serie ya se habia guardado en el backend, se esta borrando. */
+  desmarcando?: boolean
   onPesoChange: (v: string) => void
   onRepeticionesChange: (v: string) => void
   onCompletar: () => void
+  /** Si no se pasa, una serie completada ya no se puede desmarcar desde aqui. */
+  onDesmarcar?: () => void
 }
 
 export function SerieRow({
@@ -24,9 +28,11 @@ export function SerieRow({
   rir,
   descansoSeg,
   completada,
+  desmarcando = false,
   onPesoChange,
   onRepeticionesChange,
   onCompletar,
+  onDesmarcar,
 }: SerieRowProps) {
   const detalle = [
     rir ? `RIR ${rir}` : null,
@@ -85,16 +91,25 @@ export function SerieRow({
 
         <button
           type="button"
-          onClick={onCompletar}
-          aria-label={completada ? `Serie ${numero} completada` : `Completar serie ${numero}`}
+          onClick={completada ? onDesmarcar : onCompletar}
+          disabled={desmarcando || (completada && !onDesmarcar)}
+          aria-label={
+            completada
+              ? `Desmarcar serie ${numero}`
+              : `Completar serie ${numero}`
+          }
           aria-pressed={completada}
-          className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] border transition-colors duration-150 ${
+          className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] border transition-colors duration-150 disabled:opacity-100 ${
             completada
               ? 'animate-pop border-primary bg-primary text-on-primary'
               : 'border-border-strong bg-surface-2 text-fg-subtle hover:text-fg'
           }`}
         >
-          <Check size={26} strokeWidth={2.5} aria-hidden="true" />
+          {desmarcando ? (
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-on-primary border-t-transparent" />
+          ) : (
+            <Check size={26} strokeWidth={2.5} aria-hidden="true" />
+          )}
         </button>
       </div>
 
