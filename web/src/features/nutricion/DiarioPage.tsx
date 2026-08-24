@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Apple, ChevronLeft, ChevronRight, Copy, GlassWater, Plus, Trash2 } from 'lucide-react'
+import { Apple, ChevronLeft, ChevronRight, Copy, GlassWater, Plus, Trash2, UtensilsCrossed } from 'lucide-react'
 
 import { Button, Card, EmptyState, ErrorState, SectionLabel, SkeletonList } from '../../components/ui'
+import { AnotarRecetaModal } from '../compra/componentes/AnotarRecetaModal'
+import { recetaDelDia, usePlanSemana } from '../compra/planLocal'
 import {
   MEAL_NAMES,
   macrosFor,
@@ -124,6 +126,35 @@ function BotonCopiarDia({ planId, fecha }: { planId: string | undefined; fecha: 
         <p className="text-xs text-danger">No se pudo copiar. Intentalo de nuevo.</p>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * Si el planificador de compra (features/compra/PlanificarPage.tsx) asigno
+ * una receta a este dia, ofrece anotarla de golpe. La planificacion vive en
+ * localStorage (planLocal.ts, salaz.plan.semana): pendiente de backend.
+ */
+function TarjetaRecetaDelDia({ fecha }: { fecha: string }) {
+  const plan = usePlanSemana()
+  const asignacion = recetaDelDia(plan, fecha)
+  const [abierto, setAbierto] = useState(false)
+
+  if (!asignacion) return null
+
+  return (
+    <>
+      <Card className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">Receta planificada</p>
+          <p className="truncate text-fg">{asignacion.recipeName}</p>
+        </div>
+        <Button size="sm" onClick={() => setAbierto(true)}>
+          <UtensilsCrossed size={16} aria-hidden="true" />
+          {fecha === today() ? 'Anotar la receta de hoy' : 'Anotar la receta de este dia'}
+        </Button>
+      </Card>
+      <AnotarRecetaModal recipeId={asignacion.recipeId} open={abierto} onClose={() => setAbierto(false)} fecha={fecha} />
+    </>
   )
 }
 
@@ -309,6 +340,8 @@ export default function DiarioPage() {
       <SelectorFecha fecha={fecha} onCambiar={setFecha} />
 
       <BotonCopiarDia planId={planId} fecha={fecha} />
+
+      <TarjetaRecetaDelDia fecha={fecha} />
 
       <Card className="text-center">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">

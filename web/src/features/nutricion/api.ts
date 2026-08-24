@@ -335,18 +335,48 @@ export function mapaComidas(planInfo: NutritionPlanInfo | undefined): Map<MealNa
   return mapa
 }
 
+/** Un POST a nutritiondiary con la hora fija al mediodia (la app agrupa por comida, no por hora exacta). */
+function postEntradaDiario(
+  planId: string | undefined,
+  fecha: string,
+  input: { meal: string; ingredient: number; amount: number },
+): Promise<DiaryEntry> {
+  return api.post<DiaryEntry>('/api/v2/nutritiondiary/', {
+    plan: planId,
+    meal: input.meal,
+    ingredient: input.ingredient,
+    amount: input.amount,
+    datetime: `${fecha}T12:00:00`,
+  })
+}
+
 export function useAgregarAlimento(planId: string | undefined, fecha: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: { meal: string; ingredient: number; amount: number }) =>
-      api.post<DiaryEntry>('/api/v2/nutritiondiary/', {
-        plan: planId,
-        meal: input.meal,
-        ingredient: input.ingredient,
-        amount: input.amount,
-        // Hora fija al mediodia: la app agrupa por comida, no por hora exacta.
-        datetime: `${fecha}T12:00:00`,
-      }),
+      postEntradaDiario(planId, fecha, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.diario(planId, fecha) }),
+  })
+}
+
+/**
+ * Anota de golpe todos los ingredientes de una receta (modulo compra) como
+ * entradas del diario, dentro de una comida. Pensada para el boton "Anotar
+ * en el diario" de RecetaDetalle. Reutiliza el mismo POST que
+ * useAgregarAlimento (`postEntradaDiario`): no duplica la logica de resolver
+ * el plan activo ni la de asegurar que existen las comidas, que siguen
+ * resolviendose en el llamante con usePlan/usePlanInfo/useAsegurarComidas.
+ */
+export function useAnotarRecetaEnDiario(planId: string | undefined, fecha: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { meal: string; items: { ingredient: number; amount: number }[] }) => {
+      await Promise.all(
+        input.items.map((item) =>
+          postEntradaDiario(planId, fecha, { meal: input.meal, ingredient: item.ingredient, amount: item.amount }),
+        ),
+      )
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.diario(planId, fecha) }),
   })
 }

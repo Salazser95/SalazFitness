@@ -6,6 +6,7 @@ import ComprasPage from './ComprasPage'
 import CompraFormulario from './CompraFormulario'
 import CompraDetalle from './CompraDetalle'
 import ListaPage from './ListaPage'
+import PlanificarPage from './PlanificarPage'
 import RecetasPage from './RecetasPage'
 import RecetaDetalle from './RecetaDetalle'
 import RecetaFormulario from './RecetaFormulario'
@@ -14,8 +15,9 @@ import HogarPage from './HogarPage'
 const PESTANAS = [
   { to: '/compra', label: 'Resumen', fin: true },
   { to: '/compra/compras', label: 'Compras', fin: false },
-  { to: '/compra/lista', label: 'Lista', fin: false },
   { to: '/compra/recetas', label: 'Recetas', fin: false },
+  { to: '/compra/planificar', label: 'Planificar', fin: false },
+  { to: '/compra/lista', label: 'Lista', fin: false },
   { to: '/compra/hogar', label: 'Hogar', fin: false },
 ] as const
 
@@ -56,6 +58,7 @@ export default function CompraPage() {
         <Route path="/compras/:id" element={<CompraDetalle />} />
         <Route path="/compras/:id/editar" element={<CompraFormulario />} />
         <Route path="/lista" element={<ListaPage />} />
+        <Route path="/planificar" element={<PlanificarPage />} />
         <Route path="/recetas" element={<RecetasPage />} />
         <Route path="/recetas/:id" element={<RecetaDetalle />} />
         <Route path="/recetas/:id/editar" element={<RecetaFormulario />} />

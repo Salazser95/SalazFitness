@@ -112,6 +112,12 @@ export type IngredientPrice = {
   supermarket: string
   date: string
   is_current: boolean
+  /**
+   * Calculado por el backend (solo lectura): precio normalizado a 100 g/ml.
+   * `null` si la unidad es `unit` (pieza suelta, sin peso fijo) o si no hay
+   * cantidad valida. Verificado contra backend/salaz/models/ingredient_price.py.
+   */
+  price_per_100g: string | null
 }
 
 // --------------------------------------------------------- respuestas ad-hoc

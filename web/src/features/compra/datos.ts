@@ -22,6 +22,7 @@ import type {
   Household,
   HouseholdMember,
   HouseholdSummary,
+  IngredientPrice,
   IngredientWger,
   Purchase,
   PurchaseBreakdown,
@@ -1039,6 +1040,157 @@ export function useGenerarLista() {
       return retraso(lista)
     },
     onSuccess: (lista) => {
+      qc.invalidateQueries({ queryKey: claves.shoppingList(lista.household) })
+      qc.invalidateQueries({ queryKey: claves.shoppingListItems(lista.id) })
+    },
+  })
+}
+
+// ================================================================
+// Planificador: recetas de la semana/quincena -> lista de la compra
+// ================================================================
+
+export type SeleccionPlanificador = { recipeId: number; tandas: number }
+
+export type ResultadoPlanificador = {
+  lista: ShoppingList
+  items: ShoppingListItem[]
+  /** Id de ingrediente de wger -> nombres de las recetas de las que sale. Para guardar en planLocal. */
+  origenPorIngrediente: Record<number, string[]>
+}
+
+/**
+ * Genera la lista de la compra sumando, por ingrediente, las cantidades de
+ * varias recetas multiplicadas por sus tandas.
+ *
+ * El endpoint `POST .../shopping-list/generate/` NO sirve para esto:
+ * verificado contra backend/salaz/api/views.py, agrega con
+ * `Recipe.objects.filter(id__in=recipe_ids, ...)`, que en Django deduplica
+ * ids repetidos (un `WHERE id IN (...)` no cuenta cuantas veces aparece un id
+ * en la lista). Repetir un id para representar varias tandas no suma nada
+ * mas: la receta se cuenta una sola vez.
+ *
+ * Por eso aqui NO se usa `generate`: se crea la lista vacia a mano, se suman
+ * las cantidades en el cliente (amount de cada RecipeIngredient x tandas) y
+ * se crea cada ShoppingListItem uno a uno, con el precio calculado a partir
+ * de `ingredient-price` (`price_per_100g`, ver tipos.ts), igual que hace el
+ * backend en su propio calculo de coste de receta
+ * (backend/salaz/models/recipe.py).
+ */
+export function useGenerarListaDesdePlan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      household: number
+      start_date: string
+      end_date: string
+      seleccion: SeleccionPlanificador[]
+    }): Promise<ResultadoPlanificador> => {
+      // 1. Suma cantidades por ingrediente y recuerda de que recetas sale cada una.
+      const cantidades = new Map<number, number>()
+      const origenes = new Map<number, Set<string>>()
+
+      for (const sel of input.seleccion) {
+        if (sel.tandas <= 0) continue
+        const [receta, ingredientes] = await Promise.all([
+          cargarReceta(sel.recipeId),
+          cargarIngredientesReceta(sel.recipeId),
+        ])
+        for (const ri of ingredientes) {
+          cantidades.set(ri.ingredient, (cantidades.get(ri.ingredient) ?? 0) + ri.amount * sel.tandas)
+          if (!origenes.has(ri.ingredient)) origenes.set(ri.ingredient, new Set())
+          origenes.get(ri.ingredient)!.add(receta.name)
+        }
+      }
+
+      // 2. Crea la lista vacia (sin usar /generate/, ver nota de arriba).
+      let lista: ShoppingList
+      if (BACKEND_LISTO) {
+        lista = await api.post<ShoppingList>(`${BASE}/shopping-list/`, {
+          household: input.household,
+          name: `Lista ${input.start_date} a ${input.end_date}`,
+          start_date: input.start_date,
+          end_date: input.end_date,
+        })
+      } else {
+        lista = {
+          id: siguienteId(),
+          household: input.household,
+          name: `Lista ${input.start_date} a ${input.end_date}`,
+          start_date: input.start_date,
+          end_date: input.end_date,
+        }
+        almacen.shoppingLists.push(lista)
+      }
+
+      // 3. Crea cada linea, una a una, con el nombre y el precio ya resueltos.
+      const items: ShoppingListItem[] = []
+      for (const [ingredientId, amountBruto] of cantidades) {
+        const amount = Math.round(amountBruto)
+
+        if (BACKEND_LISTO) {
+          let nombre = `Ingrediente #${ingredientId}`
+          try {
+            const wger = await api.get<IngredientWger>(`/api/v2/ingredient/${ingredientId}/`)
+            nombre = wger.name
+          } catch {
+            /* si falla, se queda el nombre por defecto */
+          }
+
+          let estimatedPrice: string | null = null
+          try {
+            const precios = await api.get<Paginated<IngredientPrice>>(
+              `${BASE}/ingredient-price/?household=${input.household}&ingredient=${ingredientId}&is_current=true`,
+            )
+            const precio = precios.results[0]
+            if (precio?.price_per_100g) {
+              estimatedPrice = ((Number(precio.price_per_100g) / 100) * amount).toFixed(2)
+            }
+          } catch {
+            /* sin precio conocido para este ingrediente: se deja sin estimar */
+          }
+
+          const item = await api.post<ShoppingListItem>(`${BASE}/shopping-list-item/`, {
+            shopping_list: lista.id,
+            ingredient: ingredientId,
+            name: nombre,
+            amount,
+            unit: 'g',
+            estimated_price: estimatedPrice,
+            purchased: false,
+            // Verificado contra el backend real: ShoppingListItem.supermarket es un
+            // CharField con blank=True pero SIN null=True, asi que null da 400
+            // ("This field may not be null."). Hay que mandar cadena vacia.
+            supermarket: '',
+          })
+          items.push(item)
+        } else {
+          const info = ingredienteMock(ingredientId)
+          const precioCentimos = info ? costeIngredienteCentimos(amount, info.precioCentimosPorKg) : 0
+          const item: ShoppingListItem = {
+            id: siguienteId(),
+            shopping_list: lista.id,
+            ingredient: ingredientId,
+            name: info?.name ?? `Ingrediente #${ingredientId}`,
+            amount,
+            unit: 'g',
+            estimated_price: (precioCentimos / 100).toFixed(2),
+            purchased: false,
+            supermarket: null,
+          }
+          almacen.shoppingListItems.push(item)
+          items.push(item)
+        }
+      }
+
+      const origenPorIngrediente: Record<number, string[]> = {}
+      for (const [ingredientId, nombres] of origenes) {
+        origenPorIngrediente[ingredientId] = [...nombres]
+      }
+
+      return { lista, items, origenPorIngrediente }
+    },
+    onSuccess: ({ lista }) => {
       qc.invalidateQueries({ queryKey: claves.shoppingList(lista.household) })
       qc.invalidateQueries({ queryKey: claves.shoppingListItems(lista.id) })
     },

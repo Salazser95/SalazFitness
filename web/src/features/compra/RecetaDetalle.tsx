@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Copy, Pencil, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, Pencil, Trash2, UtensilsCrossed } from 'lucide-react'
 
 import { Button, Card, ConfirmModal, ErrorState, SectionLabel, SkeletonList, Thumbnail } from '../../components/ui'
 import { eur, int, num } from '../../lib/format'
 import { centimosAEur, eurosACentimos, repartirProporcional } from './calculo'
+import { AnotarRecetaModal } from './componentes/AnotarRecetaModal'
 import { RecetaIlustracion } from './componentes/RecetaIlustracion'
 import {
   useDuplicarReceta,
@@ -43,6 +44,7 @@ export default function RecetaDetalle() {
   const duplicar = useDuplicarReceta()
 
   const [confirmarBorrado, setConfirmarBorrado] = useState(false)
+  const [anotarAbierto, setAnotarAbierto] = useState(false)
 
   const cargando = receta.isLoading || ingredientes.isLoading || coste.isLoading
   const error = receta.isError || ingredientes.isError || coste.isError
@@ -93,6 +95,11 @@ export default function RecetaDetalle() {
           <ArrowLeft size={16} aria-hidden="true" />
           Volver a recetas
         </Link>
+
+        <Button size="lg" full onClick={() => setAnotarAbierto(true)}>
+          <UtensilsCrossed size={18} aria-hidden="true" />
+          Anotar en el diario
+        </Button>
 
         <div className="grid grid-cols-3 gap-2">
           <Button size="sm" variant="secondary" onClick={() => navigate(`/compra/recetas/${id}/editar`)}>
@@ -179,6 +186,8 @@ export default function RecetaDetalle() {
         title="Eliminar receta"
         description="Se borraran tambien todos sus ingredientes. Esta accion no se puede deshacer."
       />
+
+      <AnotarRecetaModal recipeId={id} open={anotarAbierto} onClose={() => setAnotarAbierto(false)} />
     </div>
   )
 }

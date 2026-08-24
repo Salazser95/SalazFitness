@@ -15,6 +15,7 @@ import {
   useMarcarComprado,
   useRecipes,
 } from './datos'
+import { origenesDeIngrediente, usePlanSemana } from './planLocal'
 import type { ShoppingListItem } from './tipos'
 
 /** Suma dias a una fecha ISO YYYY-MM-DD, sin desplazarse de zona horaria. */
@@ -55,6 +56,7 @@ export default function ListaPage() {
   const eliminarItem = useEliminarLineaLista()
   const recetas = useRecipes(householdId)
   const generar = useGenerarLista()
+  const planSemana = usePlanSemana()
 
   const [mostrarGenerador, setMostrarGenerador] = useState(false)
   const [fechaInicio, setFechaInicio] = useState(fechaPorDefectoNuevaCompra())
@@ -193,36 +195,42 @@ export default function ListaPage() {
           {eliminarItem.isError ? <p className="text-sm text-danger">No se pudo quitar la linea.</p> : null}
 
           <ul className="space-y-2">
-            {items.map((item) => (
-              <li key={item.id}>
-                <Card className={`flex items-center gap-3 transition-opacity duration-150 ${item.purchased ? 'opacity-60' : ''}`}>
-                  <Casilla
-                    marcado={item.purchased}
-                    ariaLabel={`Marcar ${item.name} como comprado`}
-                    onToggle={() => onToggleComprado(item)}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className={`truncate text-fg ${item.purchased ? 'line-through' : ''}`}>{item.name}</p>
-                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-fg-muted">
-                      <span>
-                        {item.amount} {item.unit}
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span>{item.supermarket ?? 'Sin asignar'}</span>
-                    </p>
-                  </div>
-                  <p className="tnum shrink-0 font-medium text-fg">{eur(item.estimated_price)}</p>
-                  <button
-                    type="button"
-                    aria-label={`Quitar ${item.name} de la lista`}
-                    onClick={() => setABorrar(item)}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
-                  >
-                    <Trash2 size={16} aria-hidden="true" />
-                  </button>
-                </Card>
-              </li>
-            ))}
+            {items.map((item) => {
+              const origenes = origenesDeIngrediente(planSemana, item.ingredient)
+              return (
+                <li key={item.id}>
+                  <Card className={`flex items-center gap-3 transition-opacity duration-150 ${item.purchased ? 'opacity-60' : ''}`}>
+                    <Casilla
+                      marcado={item.purchased}
+                      ariaLabel={`Marcar ${item.name} como comprado`}
+                      onToggle={() => onToggleComprado(item)}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className={`truncate text-fg ${item.purchased ? 'line-through' : ''}`}>{item.name}</p>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-fg-muted">
+                        <span>
+                          {item.amount} {item.unit}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span>{item.supermarket ?? 'Sin asignar'}</span>
+                      </p>
+                      {origenes.length > 0 ? (
+                        <p className="mt-0.5 truncate text-xs text-fg-subtle">para: {origenes.join(', ')}</p>
+                      ) : null}
+                    </div>
+                    <p className="tnum shrink-0 font-medium text-fg">{eur(item.estimated_price)}</p>
+                    <button
+                      type="button"
+                      aria-label={`Quitar ${item.name} de la lista`}
+                      onClick={() => setABorrar(item)}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
+                    >
+                      <Trash2 size={16} aria-hidden="true" />
+                    </button>
+                  </Card>
+                </li>
+              )
+            })}
           </ul>
         </>
       )}
