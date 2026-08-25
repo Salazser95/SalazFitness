@@ -1,4 +1,6 @@
 import { TrendingDown, TrendingUp, X } from 'lucide-react'
+
+import { urlApi } from '../../lib/config'
 import type { LucideIcon } from 'lucide-react'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
 import { useEffect, useRef } from 'react'
@@ -348,6 +350,10 @@ export function Thumbnail({
   className?: string
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  // Django devuelve la foto como ruta relativa (/media/...) cuando la sirve un
+  // nginx por delante. En el navegador eso funciona; en el APK y en la app de
+  // iPhone hay que ponerle delante el servidor, igual que a la API.
+  const url = urlApi(src)
 
   return (
     <>
@@ -358,7 +364,7 @@ export function Thumbnail({
         aria-label={`Ampliar: ${alt}`}
       >
         <img
-          src={src}
+          src={url}
           alt={alt}
           loading="lazy"
           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
@@ -382,7 +388,7 @@ export function Thumbnail({
           >
             <X size={20} aria-hidden="true" />
           </button>
-          <img src={src} alt={alt} className="block max-h-[90vh] max-w-[92vw] object-contain" />
+          <img src={url} alt={alt} className="block max-h-[90vh] max-w-[92vw] object-contain" />
         </div>
       </dialog>
     </>

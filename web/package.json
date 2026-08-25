@@ -7,9 +7,17 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "app:sync": "npx cap sync",
+    "app:android": "npx cap sync android",
+    "app:ios": "npx cap sync ios",
+    "app:abrir:android": "npx cap open android",
+    "app:abrir:ios": "npx cap open ios"
   },
   "dependencies": {
+    "@capacitor/android": "^7.6.8",
+    "@capacitor/core": "^7.6.8",
+    "@capacitor/ios": "^7.6.8",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.102.0",
     "i18next": "^26.4.0",
@@ -23,6 +31,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.6.8",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

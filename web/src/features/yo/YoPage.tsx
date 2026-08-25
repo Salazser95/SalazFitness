@@ -32,6 +32,13 @@ import { int, kg, num, shortDate, today } from '../../lib/format'
 import { useAuth } from '../../lib/auth'
 import { useAjustes } from '../../lib/settings'
 import {
+  SERVIDOR_POR_DEFECTO,
+  escribirServidor,
+  normalizarServidor,
+  servidorActual,
+  urlApi,
+} from '../../lib/config'
+import {
   useAddWeightEntry,
   useCreateMeasurement,
   useCreateMeasurementCategory,
@@ -626,7 +633,7 @@ function FotosProgreso() {
           {fotosOrdenadas.map((foto) => (
             <div key={foto.id} className="relative">
               <Thumbnail
-                src={foto.image}
+                src={urlApi(foto.image)}
                 alt={foto.description || `Foto de progreso del ${shortDate(foto.date)}`}
                 className="aspect-square"
               />
@@ -850,6 +857,60 @@ function MedidasTab() {
 
 // ------------------------------------------------------------------ Ajustes
 
+/**
+ * A que servidor habla la app.
+ *
+ * Solo hace falta en la app instalada (APK de Android, app de iPhone): alli no
+ * hay un servidor "detras" de la propia pagina y hay que decirle donde esta. En
+ * el navegador la app se sirve desde el mismo sitio que la API y este ajuste se
+ * puede dejar en blanco. Ver web/src/lib/config.ts.
+ */
+function TarjetaServidor() {
+  const [valor, setValor] = useState(servidorActual())
+  const [guardado, setGuardado] = useState(false)
+
+  const normalizado = normalizarServidor(valor)
+  const invalido = valor.trim() !== '' && normalizado === ''
+
+  function guardar() {
+    setValor(escribirServidor(valor))
+    setGuardado(true)
+  }
+
+  return (
+    <Card>
+      <SectionLabel>Servidor</SectionLabel>
+      <p className="text-sm text-fg-muted">
+        La direccion de tu servidor de SalazFitness. Dejalo en blanco si abres la app desde el
+        navegador: entonces usa el mismo sitio desde el que se ha cargado.
+      </p>
+      <Field
+        label="Direccion"
+        placeholder={SERVIDOR_POR_DEFECTO || 'https://salazfitness.tudominio.com'}
+        value={valor}
+        inputMode="url"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        onChange={(e) => {
+          setValor(e.target.value)
+          setGuardado(false)
+        }}
+        error={invalido ? 'Tiene que empezar por http:// o https://' : undefined}
+        className="mt-4"
+      />
+      <Button type="button" variant="secondary" className="mt-4" onClick={guardar} disabled={invalido}>
+        Guardar servidor
+      </Button>
+      {guardado ? (
+        <p className="mt-3 text-sm text-success">
+          Guardado{normalizado ? `: ${normalizado}` : ' (se usara el servidor por defecto)'}.
+        </p>
+      ) : null}
+    </Card>
+  )
+}
+
 function AjustesTab() {
   const { t, i18n } = useTranslation()
   const { mostrarMediaEjercicios, setMostrarMediaEjercicios, supermercadoDefecto, setSupermercadoDefecto } =
@@ -944,6 +1005,8 @@ function AjustesTab() {
           />
         ) : null}
       </Card>
+
+      <TarjetaServidor />
 
       <Card>
         <SectionLabel>{t('ajustes.datos.titulo')}</SectionLabel>

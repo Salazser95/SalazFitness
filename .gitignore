@@ -37,3 +37,10 @@ graphify-out/cost.json
 graphify-out/obsidian/
 graphify-out/manifest.json
 graphify-out/cache/
+
+# Proyectos nativos que genera Capacitor: se regeneran con `npx cap add`.
+web/android/
+web/ios/
+
+# Variables de despliegue: contrasenas, SMTP y clave de Django.
+deploy/.env

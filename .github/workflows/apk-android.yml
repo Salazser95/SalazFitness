@@ -1,0 +1,75 @@
+# Genera el APK de Android sin tener que instalar Android Studio en casa.
+#
+# Se lanza a mano desde la pestana Actions de GitHub (o solo con una etiqueta
+# v*), se le dice a que servidor tiene que apuntar la app, y deja el APK como
+# artefacto descargable. Se instala en el movil copiandolo y abriendolo, con
+# "instalar de origenes desconocidos" activado.
+#
+# El proyecto nativo de Android NO esta en el repositorio: lo genera aqui
+# `npx cap add android` en cada ejecucion. Son miles de ficheros que Capacitor
+# reconstruye igual cada vez, y tenerlos versionados solo da conflictos.
+
+name: APK de Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      servidor:
+        description: 'URL del servidor con el que sale la app (ej. https://salazfitness.tudominio.com)'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Capacitor compila el APK con Gradle, que necesita un JDK.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar la PWA
+        env:
+          # De donde saca los datos la app instalada. En una etiqueta no hay
+          # formulario, asi que se usa la variable del repositorio; si tampoco
+          # esta, la app sale sin servidor y se configura desde Ajustes.
+          VITE_API_BASE: ${{ inputs.servidor || vars.SALAZ_API_BASE }}
+        run: npm run build
+
+      - name: Generar el proyecto de Android
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Compilar el APK
+        run: ./gradlew assembleDebug --no-daemon
+        working-directory: web/android
+
+      - name: Publicar el APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: salazfitness-apk
+          path: web/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

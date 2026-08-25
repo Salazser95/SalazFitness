@@ -207,6 +207,88 @@ Macros de un `Ingredient`: por 100 g → `energy` (kcal), `protein`,
 | Objetivo de peso y fecha | búsqueda `goal_weight`: 0 |
 | Precios y coste por persona | no existe |
 
+## Endpoints propios de SalazFitness (`/api/v2/salaz/`)
+
+Los CRUD normales (`household`, `purchase`, `recipe`, `shopping-list`...) siguen
+el patrón de DRF y no se detallan aquí. Los que tienen lógica propia sí:
+
+### Nutrición → compra
+
+`POST /api/v2/salaz/shopping-list/from-nutrition/`
+
+Convierte los platos del plan de nutrición en la lista de la compra. Es el
+enlace entre las dos mitades de la app: lo que hay apuntado en Desayuno,
+Comida, Cena y Snacks es lo que hay que comprar.
+
+```jsonc
+{
+  "household": 1,
+  "plan": "uuid-del-plan",   // opcional: por defecto, el más reciente
+  "start_date": "2026-08-26", // opcional: por defecto, hoy
+  "days": 12,                 // opcional: 12 por defecto
+  "include_produce": true,    // añade fruta y verdura del día a día
+  "red_fruit": true,          // moras, fresas y arándanos
+  "freeze": null              // fuerza congelar (o no); sin esto lo decide la vida útil
+}
+```
+
+Devuelve la `ShoppingList` creada, con `trips`: el resumen de cada tanda de
+compra.
+
+**Las tandas.** Una lista de 12 días no es una sola compra. Cada línea lleva
+`trip`, `buy_date` y `days_covered`, calculados con la vida útil del producto
+(`backend/salaz/frescura.py`):
+
+| Producto | Aguanta | En 12 días |
+|---|---|---|
+| Arroz, aceite, legumbre | 365 d | 1 compra |
+| Yogur, huevos, manzana | 18-25 d | 1 compra |
+| Brócoli, tomate | 8-9 d | 2 compras |
+| Moras, fresas, pollo | 3 d | 4 compras pequeñas |
+| Pescado fresco | 2 d | 1 compra, `freeze_on_arrival: true` |
+
+Cuando algo pediría más de 4 viajes al supermercado y se puede congelar, se
+compra de una vez y la línea sale marcada para el congelador. Los gramos totales
+son los mismos repartidos que de golpe: `gramos al día × días que cubre la
+tanda`.
+
+### Compra → nutrición
+
+`GET /api/v2/salaz/shopping-list/{id}/coverage/?date=YYYY-MM-DD`
+
+La vuelta del enlace: para una fecha, qué comidas tienen ya sus alimentos
+comprados. Lo consume el diario de Nutrición.
+
+```jsonc
+{
+  "date": "2026-08-26",
+  "nutrition_plan": "uuid-del-plan",
+  "meals": [
+    { "meal": "...", "name": "Desayuno", "status": "comprado", "total": 4, "purchased": 4 },
+    { "meal": "...", "name": "Cena", "status": "parcial", "total": 5, "purchased": 2 }
+  ],
+  "ingredients": [{ "ingredient": 1234, "purchased": true }]
+}
+```
+
+`status` es `comprado`, `parcial`, `pendiente` o `sin_datos`. Una línea cubre
+una fecha si `buy_date <= fecha < buy_date + days_covered`.
+
+### Cuentas
+
+Los únicos endpoints que se llaman **sin sesión**: quien se registra todavía no
+tiene cuenta. Todos con límite de peticiones por IP.
+
+| Método y ruta | Qué hace | Límite |
+|---|---|---|
+| `POST /api/v2/salaz/account/register/` | Alta. Crea el usuario con `is_active=False` y manda el correo | 5/hora por IP |
+| `POST /api/v2/salaz/account/verify/` | Confirma con el token del correo y activa la cuenta | 20/hora por IP |
+| `POST /api/v2/salaz/account/resend/` | Reenvía el correo. Responde siempre lo mismo, exista la cuenta o no | 5/hora por IP |
+| `GET /api/v2/salaz/account/me/` | Estado de la cuenta que llama (requiere sesión) | — |
+
+Mientras `is_active` sea `False`, el login de wger rechaza la cuenta. La
+verificación queda impuesta sin haber tocado nada de wger.
+
 ## Esquema OpenAPI completo
 
 `GET /api/v2/schema?format=json` — 129 rutas, 926 KB.

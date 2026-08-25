@@ -1,10 +1,14 @@
+import { urlApi } from './config'
 import { clearTokens, readTokens, writeTokens } from './tokens'
 
 /**
  * Cliente HTTP contra el backend de wger.
  *
- * En desarrollo, Vite proxea /api y /allauth al servidor Django, asi que las
- * rutas son relativas y no hay problema de CORS ni de cookies.
+ * Las rutas se escriben siempre relativas (`/api/v2/...`) y `urlApi` decide a
+ * donde van de verdad: en el navegador con `npm run dev` se quedan relativas y
+ * Vite las proxea al Django local; en el APK y en la app de iPhone se les pone
+ * delante el servidor configurado, porque alli no hay proxy que valga (ver
+ * lib/config.ts).
  */
 
 export class ApiError extends Error {
@@ -40,7 +44,7 @@ async function refreshAccessToken(): Promise<string | null> {
     if (!tokens) return null
 
     try {
-      const res = await fetch('/allauth/app/v1/tokens/refresh', {
+      const res = await fetch(urlApi('/allauth/app/v1/tokens/refresh'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: tokens.refresh }),
@@ -86,7 +90,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (body !== undefined) finalHeaders['Content-Type'] = 'application/json'
   if (tokens) finalHeaders.Authorization = `Bearer ${tokens.access}`
 
-  const res = await fetch(path, {
+  const res = await fetch(urlApi(path), {
     ...rest,
     headers: finalHeaders,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -142,7 +146,10 @@ export async function fetchAll<T>(path: string, maxPages = 20): Promise<T[]> {
   while (url && pages < maxPages) {
     const page: Paginated<T> = await api.get<Paginated<T>>(url)
     out.push(...page.results)
-    // DRF devuelve `next` absoluto; lo pasamos a relativo para que siga usando el proxy.
+    // DRF devuelve `next` absoluto, con el host con el que se sirvio la peticion.
+    // Se recorta a ruta para que vuelva a pasar por `urlApi`: en el navegador
+    // sigue usando el proxy de Vite, y en el movil el servidor configurado (que
+    // puede no ser el que Django cree que es, si hay un nginx delante).
     url = page.next ? new URL(page.next).pathname + new URL(page.next).search : null
     pages += 1
   }
@@ -157,7 +164,7 @@ export type LoginResult = {
 }
 
 export async function login(username: string, password: string): Promise<LoginResult> {
-  const res = await fetch('/allauth/app/v1/auth/login', {
+  const res = await fetch(urlApi('/allauth/app/v1/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),

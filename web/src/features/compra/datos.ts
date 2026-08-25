@@ -14,6 +14,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, fetchAll, type Paginated } from '../../lib/api'
+import { urlApi } from '../../lib/config'
 import { readTokens } from '../../lib/tokens'
 import { today } from '../../lib/format'
 import { costeIngredienteCentimos, eurosACentimos, repartoCompra, sumarCentimos } from './calculo'
@@ -729,7 +730,7 @@ export function useSubirFotoReceta() {
       const body = new FormData()
       body.append('image', file)
 
-      const res = await fetch(`${BASE}/recipe/${id}/`, {
+      const res = await fetch(urlApi(`${BASE}/recipe/${id}/`), {
         method: 'PATCH',
         headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : undefined,
         body,
