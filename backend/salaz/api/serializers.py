@@ -138,8 +138,20 @@ class RecipeIngredientSerializer(serializers.ModelSerializer):
         fields = ['id', 'recipe', 'ingredient', 'amount']
 
 
+class TripSerializer(serializers.Serializer):
+    """Resumen de una tanda de compra. Solo lectura, lo calcula el modelo."""
+
+    trip = serializers.IntegerField()
+    buy_date = serializers.DateField(allow_null=True)
+    items = serializers.IntegerField()
+    purchased = serializers.IntegerField()
+    estimated_total = serializers.DecimalField(max_digits=10, decimal_places=2)
+    done = serializers.BooleanField()
+
+
 class ShoppingListSerializer(serializers.ModelSerializer):
     estimated_total = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    trips = TripSerializer(many=True, read_only=True)
 
     class Meta:
         model = ShoppingList
@@ -151,7 +163,11 @@ class ShoppingListSerializer(serializers.ModelSerializer):
             'end_date',
             'created',
             'estimated_total',
+            'nutrition_plan',
+            'days',
+            'trips',
         ]
+        read_only_fields = ['id', 'created']
 
 
 class ShoppingListItemSerializer(serializers.ModelSerializer):
@@ -167,4 +183,25 @@ class ShoppingListItemSerializer(serializers.ModelSerializer):
             'estimated_price',
             'purchased',
             'supermarket',
+            'category',
+            'shelf_life_days',
+            'trip',
+            'buy_date',
+            'days_covered',
+            'freeze_on_arrival',
+            'source',
+            'note',
         ]
+        read_only_fields = ['id']
+
+    def create(self, validated_data):
+        """
+        Una linea creada a mano desde la app llega sin categoria ni vida util.
+        Se rellenan aqui a partir del nombre para que agrupe y avise igual que
+        las que genera el endpoint de nutricion.
+        """
+        item = ShoppingListItem(**validated_data)
+        if not item.category:
+            item.aplicar_frescura(item.shopping_list.days or 0)
+        item.save()
+        return item

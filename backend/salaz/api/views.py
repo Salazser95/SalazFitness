@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.shortcuts import get_object_or_404
@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
+from salaz import frescura
 from salaz.api.serializers import (
     HouseholdMemberSerializer,
     HouseholdSerializer,
@@ -19,6 +20,7 @@ from salaz.api.serializers import (
     ShoppingListItemSerializer,
     ShoppingListSerializer,
 )
+from salaz.generador_lista import anadir_cesta, generar_lista, productos_del_plan
 from salaz.models import (
     Household,
     HouseholdMember,
@@ -30,7 +32,31 @@ from salaz.models import (
     ShoppingList,
     ShoppingListItem,
 )
-from wger.nutrition.models import Ingredient
+from wger.nutrition.models import Ingredient, Meal, MealItem, NutritionPlan
+
+
+def _parse_date(valor) -> date | None:
+    """Una fecha YYYY-MM-DD del cuerpo o de la query, o None si no es valida."""
+    if not valor:
+        return None
+    try:
+        return date.fromisoformat(str(valor))
+    except ValueError:
+        return None
+
+
+def _flag(datos, clave: str, por_defecto: bool) -> bool:
+    """
+    Un booleano del cuerpo de la peticion, tolerando texto.
+
+    Un cliente que manda JSON envia `true`, pero uno que manda un formulario
+    envia la cadena "true", y `bool("false")` es True. De ahi la comprobacion
+    explicita.
+    """
+    valor = datos.get(clave, por_defecto)
+    if isinstance(valor, bool):
+        return valor
+    return str(valor).strip().lower() in ('1', 'true', 'yes', 'si', 'on')
 
 
 class HouseholdViewSet(viewsets.ModelViewSet):
@@ -209,6 +235,150 @@ class ShoppingListViewSet(viewsets.ModelViewSet):
         if getattr(self, 'swagger_fake_view', False):
             return ShoppingList.objects.none()
         return ShoppingList.objects.filter(household__owner=self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='from-nutrition')
+    def from_nutrition(self, request):
+        """
+        Genera la lista de la compra a partir de los platos del plan de nutricion.
+
+        Es el enlace que faltaba entre las dos mitades de la app: lo que el
+        usuario apunta en Desayuno / Comida / Cena / Snacks es exactamente lo
+        que hay que comprar, sin volver a teclearlo como receta.
+
+        Cuerpo:
+            household     (obligatorio) id del hogar
+            plan          (opcional) id del plan de nutricion; por defecto, el
+                          mas reciente del usuario
+            start_date    (opcional) YYYY-MM-DD, por defecto hoy
+            days          (opcional) 12 por defecto
+            include_produce (opcional, true) anade fruta y verdura del dia a dia
+            red_fruit     (opcional, true) incluye moras, fresas y arandanos
+            freeze        (opcional) true/false fuerza congelar o no; sin este
+                          campo lo decide la vida util de cada producto
+
+        Devuelve la lista creada, con sus tandas.
+        """
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        household = get_object_or_404(Household, pk=household_id, owner=request.user)
+
+        plan_id = request.data.get('plan')
+        if plan_id:
+            plan = NutritionPlan.objects.filter(pk=plan_id, user=request.user).first()
+        else:
+            plan = NutritionPlan.objects.filter(user=request.user).order_by('-creation_date').first()
+        if plan is None:
+            return Response(
+                {'detail': 'No nutrition plan found for this user.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            days = int(request.data.get('days', frescura.DIAS_POR_DEFECTO))
+        except (TypeError, ValueError):
+            return Response({'detail': 'days must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+        if days <= 0 or days > 60:
+            return Response(
+                {'detail': 'days must be between 1 and 60.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        start_date = _parse_date(request.data.get('start_date')) or timezone.now().date()
+
+        productos = productos_del_plan(str(plan.pk))
+        if _flag(request.data, 'include_produce', True):
+            productos = anadir_cesta(productos, fruta_roja=_flag(request.data, 'red_fruit', True))
+
+        if not productos:
+            return Response(
+                {
+                    'detail': (
+                        'El plan de nutricion no tiene alimentos en sus comidas, '
+                        'y no hay nada que comprar.'
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        congelar = request.data.get('freeze')
+        if congelar is not None:
+            congelar = _flag(request.data, 'freeze', True)
+
+        lista = generar_lista(
+            household=household,
+            productos=productos,
+            start_date=start_date,
+            days=days,
+            nombre=f'Compra de {days} dias desde {start_date.isoformat()}',
+            nutrition_plan=str(plan.pk),
+            congelar=congelar,
+        )
+        return Response(self.get_serializer(lista).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'])
+    def coverage(self, request, pk=None):
+        """
+        Que hay comprado ya para una fecha, comida a comida.
+
+        Lo consume la pantalla de Nutricion: al abrir el diario de un dia, cada
+        plato puede decir si sus alimentos estan comprados, a medias o sin
+        comprar, sin que el usuario tenga que ir a la pestana de Compra.
+
+        Una linea de la lista cubre una fecha si esa fecha cae dentro de los
+        dias que la tanda compra (`buy_date` incluido, `buy_date + days_covered`
+        excluido).
+        """
+        lista = self.get_object()
+        fecha = _parse_date(request.query_params.get('date')) or timezone.now().date()
+
+        # Estado de compra de cada alimento en esa fecha. Un alimento puede
+        # aparecer en varias tandas; la que manda es la que cubre la fecha.
+        estado: dict[int, bool] = {}
+        for item in lista.items.all():
+            if item.ingredient_id is None or item.buy_date is None:
+                continue
+            fin = item.buy_date + timedelta(days=item.days_covered or 1)
+            if item.buy_date <= fecha < fin:
+                estado[item.ingredient_id] = item.purchased
+
+        comidas = []
+        if lista.nutrition_plan:
+            for comida in Meal.objects.filter(plan_id=lista.nutrition_plan).order_by('order'):
+                ingredientes = list(
+                    MealItem.objects.filter(meal_id=comida.id).values_list('ingredient_id', flat=True)
+                )
+                conocidos = [i for i in ingredientes if i in estado]
+                comprados = [i for i in conocidos if estado[i]]
+                if not conocidos:
+                    situacion = 'sin_datos'
+                elif len(comprados) == len(conocidos):
+                    situacion = 'comprado'
+                elif comprados:
+                    situacion = 'parcial'
+                else:
+                    situacion = 'pendiente'
+                comidas.append(
+                    {
+                        'meal': str(comida.id),
+                        'name': comida.name or f'Comida {comida.order}',
+                        'status': situacion,
+                        'total': len(conocidos),
+                        'purchased': len(comprados),
+                    }
+                )
+
+        return Response(
+            {
+                'date': fecha,
+                'shopping_list': lista.id,
+                'nutrition_plan': lista.nutrition_plan,
+                'meals': comidas,
+                'ingredients': [
+                    {'ingredient': k, 'purchased': v} for k, v in sorted(estado.items())
+                ],
+            }
+        )
 
     @action(detail=False, methods=['post'])
     def generate(self, request):
