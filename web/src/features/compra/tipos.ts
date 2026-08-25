@@ -82,12 +82,45 @@ export type RecipeIngredient = {
   amount: number
 }
 
+/** Categoria de frescura que asigna el backend (ver backend/salaz/frescura.py). */
+export type CategoriaFrescura =
+  | 'despensa'
+  | 'congelado'
+  | 'lacteo'
+  | 'fruta'
+  | 'fruta_delicada'
+  | 'verdura'
+  | 'carne'
+  | 'pescado'
+  | 'huevos'
+  | 'panaderia'
+
+/** Una tanda de compra dentro de una lista: un viaje al supermercado. */
+export type Tanda = {
+  /** 1 = la compra grande del primer dia; 2, 3... reposiciones de fresco. */
+  trip: number
+  /** Fecha ISO en la que toca hacer esta compra, o null en listas antiguas. */
+  buy_date: string | null
+  items: number
+  purchased: number
+  estimated_total: string
+  done: boolean
+}
+
 export type ShoppingList = {
   id: number
   household: number
   name: string
   start_date: string
   end_date: string
+  /**
+   * Id del plan de nutricion del que salio la lista, o cadena vacia si se
+   * genero desde recetas o a mano. Es lo que une las dos mitades de la app.
+   */
+  nutrition_plan: string
+  /** Dias que cubre la lista. 12 por defecto. */
+  days: number
+  trips: Tanda[]
 }
 
 export type ShoppingListItem = {
@@ -100,6 +133,18 @@ export type ShoppingListItem = {
   estimated_price: string
   purchased: boolean
   supermarket: string | null
+  category: CategoriaFrescura | ''
+  /** Dias que aguanta el producto desde que se compra. */
+  shelf_life_days: number | null
+  trip: number
+  buy_date: string | null
+  /** Dias del plan que cubre esta linea concreta. */
+  days_covered: number
+  /** Hay que meterlo en el congelador al llegar a casa. */
+  freeze_on_arrival: boolean
+  /** De donde sale: 'Desayuno, Cena', 'Fruta y verdura'... */
+  source: string
+  note: string
 }
 
 export type IngredientPrice = {
@@ -166,6 +211,40 @@ export type RecipeCost = {
     carbohydrates: number
     fat: number
   }
+}
+
+/** Cuerpo de POST /shopping-list/from-nutrition/. */
+export type GenerarDesdeNutricionPayload = {
+  household: number
+  /** Id del plan; si se omite, el backend usa el mas reciente del usuario. */
+  plan?: string
+  /** Fecha ISO del primer dia. Por defecto, hoy. */
+  start_date?: string
+  /** 12 por defecto, que es lo que dura una compra grande. */
+  days?: number
+  /** Anadir fruta y verdura del dia a dia. Por defecto, si. */
+  include_produce?: boolean
+  /** Incluir moras, fresas y arandanos. Por defecto, si. */
+  red_fruit?: boolean
+  /** Forzar congelar (o no) todo lo fresco. Sin esto lo decide la vida util. */
+  freeze?: boolean
+}
+
+/** Respuesta de GET /shopping-list/{id}/coverage/?date=. */
+export type CoberturaComida = {
+  meal: string
+  name: string
+  status: 'comprado' | 'parcial' | 'pendiente' | 'sin_datos'
+  total: number
+  purchased: number
+}
+
+export type Cobertura = {
+  date: string
+  shopping_list: number
+  nutrition_plan: string
+  meals: CoberturaComida[]
+  ingredients: { ingredient: number; purchased: boolean }[]
 }
 
 export type GenerarListaPayload = {

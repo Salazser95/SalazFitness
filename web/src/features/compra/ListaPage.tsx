@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { Check, ListPlus, ShoppingCart, Trash2 } from 'lucide-react'
+import { Apple, Check, ListPlus, ShoppingCart, Trash2 } from 'lucide-react'
 
 import { Button, Card, ConfirmModal, EmptyState, ErrorState, Field, SectionLabel, SkeletonList, StatCard } from '../../components/ui'
-import { eur } from '../../lib/format'
+import { eur, today } from '../../lib/format'
 import { supermercadoDefectoActual } from '../../lib/settings'
 import { eurosACentimos, sumarCentimos } from './calculo'
 import {
   fechaPorDefectoNuevaCompra,
   useEliminarLineaLista,
   useGenerarLista,
+  useGenerarListaDesdeNutricion,
   useHousehold,
   useListaActiva,
   useListaItems,
@@ -16,6 +17,7 @@ import {
   useRecipes,
 } from './datos'
 import { origenesDeIngrediente, usePlanSemana } from './planLocal'
+import { AvisoDeHoy, CabeceraTanda, PistasFrescura } from './componentes/TandaCompra'
 import type { ShoppingListItem } from './tipos'
 
 /** Suma dias a una fecha ISO YYYY-MM-DD, sin desplazarse de zona horaria. */
@@ -46,6 +48,112 @@ export function Casilla({ marcado, onToggle, ariaLabel }: { marcado: boolean; on
   )
 }
 
+/**
+ * Agrupa las lineas por tanda de compra, conservando el orden que ya trae el
+ * backend (ordering = trip, category, id). Las listas antiguas, generadas antes
+ * de que existieran las tandas, caen todas en la tanda 1 y se ensenan como una
+ * sola compra: es exactamente lo que eran.
+ */
+function agruparPorTanda(items: ShoppingListItem[]): { trip: number; fecha: string | null; items: ShoppingListItem[] }[] {
+  const grupos = new Map<number, { trip: number; fecha: string | null; items: ShoppingListItem[] }>()
+  for (const item of items) {
+    const grupo = grupos.get(item.trip) ?? { trip: item.trip, fecha: item.buy_date, items: [] }
+    grupo.items.push(item)
+    // La fecha de la tanda es la mas temprana de sus lineas, igual que en el backend.
+    if (item.buy_date && (grupo.fecha === null || item.buy_date < grupo.fecha)) {
+      grupo.fecha = item.buy_date
+    }
+    grupos.set(item.trip, grupo)
+  }
+  return [...grupos.values()].sort((a, b) => a.trip - b.trip)
+}
+
+/** El generador desde el plan de nutricion, que es el camino por defecto. */
+function GeneradorNutricion({
+  householdId,
+  onHecho,
+}: {
+  householdId: number
+  onHecho: () => void
+}) {
+  const generar = useGenerarListaDesdeNutricion()
+  const [dias, setDias] = useState(12)
+  const [inicio, setInicio] = useState(today())
+  const [conFrutaVerdura, setConFrutaVerdura] = useState(true)
+  const [conFrutaRoja, setConFrutaRoja] = useState(true)
+
+  async function onGenerar() {
+    if (householdId <= 0) return
+    await generar.mutateAsync({
+      household: householdId,
+      start_date: inicio,
+      days: dias,
+      include_produce: conFrutaVerdura,
+      red_fruit: conFrutaRoja,
+    })
+    onHecho()
+  }
+
+  return (
+    <Card className="space-y-3">
+      <SectionLabel>Desde el plan de nutricion</SectionLabel>
+      <p className="text-sm text-fg-muted">
+        Coge lo que tienes apuntado en Desayuno, Comida, Cena y Snacks y lo convierte en la compra.
+        Lo que no aguanta el periodo entero se reparte en varias compras pequenas, con su fecha.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Desde" type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} />
+        <Field
+          label="Dias que cubre"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={60}
+          value={dias}
+          onChange={(e) => setDias(Math.min(60, Math.max(1, Number(e.target.value))))}
+        />
+      </div>
+
+      <label className="flex items-center gap-3 text-sm text-fg">
+        <input
+          type="checkbox"
+          checked={conFrutaVerdura}
+          onChange={(e) => setConFrutaVerdura(e.target.checked)}
+          className="h-5 w-5 rounded border-border accent-[var(--color-primary)]"
+        />
+        Anadir fruta y verdura del dia a dia
+      </label>
+
+      <label className={`flex items-center gap-3 text-sm ${conFrutaVerdura ? 'text-fg' : 'text-fg-subtle'}`}>
+        <input
+          type="checkbox"
+          checked={conFrutaRoja && conFrutaVerdura}
+          disabled={!conFrutaVerdura}
+          onChange={(e) => setConFrutaRoja(e.target.checked)}
+          className="h-5 w-5 rounded border-border accent-[var(--color-primary)]"
+        />
+        Incluir fruta roja (moras, fresas, arandanos)
+      </label>
+      {conFrutaVerdura && conFrutaRoja ? (
+        <p className="text-xs text-fg-subtle">
+          La fruta roja se compra poca y a menudo: aguanta 2-3 dias en la nevera.
+        </p>
+      ) : null}
+
+      <Button type="button" full onClick={onGenerar} disabled={generar.isPending || householdId <= 0}>
+        <Apple size={16} aria-hidden="true" />
+        {generar.isPending ? 'Generando...' : `Generar compra de ${dias} dias`}
+      </Button>
+      {generar.isError ? (
+        <p className="text-sm text-danger">
+          No se pudo generar. Comprueba que el plan de nutricion tiene alimentos en sus comidas.
+        </p>
+      ) : null}
+    </Card>
+  )
+}
+
 export default function ListaPage() {
   const household = useHousehold()
   const householdId = household.data?.id ?? 0
@@ -58,7 +166,7 @@ export default function ListaPage() {
   const generar = useGenerarLista()
   const planSemana = usePlanSemana()
 
-  const [mostrarGenerador, setMostrarGenerador] = useState(false)
+  const [generador, setGenerador] = useState<'ninguno' | 'nutricion' | 'recetas'>('ninguno')
   const [fechaInicio, setFechaInicio] = useState(fechaPorDefectoNuevaCompra())
   const [fechaFin, setFechaFin] = useState(sumarDias(fechaPorDefectoNuevaCompra(), 7))
   const [recetasElegidas, setRecetasElegidas] = useState<number[]>([])
@@ -77,7 +185,7 @@ export default function ListaPage() {
       recipe_ids: recetasElegidas,
     })
     setRecetasElegidas([])
-    setMostrarGenerador(false)
+    setGenerador('ninguno')
   }
 
   function onToggleComprado(item: ShoppingListItem) {
@@ -105,21 +213,40 @@ export default function ListaPage() {
   const totalRealCentimos = sumarCentimos(
     items.filter((i) => i.purchased).map((i) => eurosACentimos(i.estimated_price)),
   )
+  const tandas = agruparPorTanda(items)
 
   const cargando = household.isLoading || listaActiva.isLoading || (listaId > 0 && listaItems.isLoading)
   const error = household.isError || listaActiva.isError || listaItems.isError
 
   return (
     <div className="animate-rise space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <SectionLabel>Lista de la compra</SectionLabel>
-        <Button size="sm" variant="secondary" onClick={() => setMostrarGenerador((v) => !v)}>
-          <ListPlus size={16} aria-hidden="true" />
-          Generar desde recetas
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant={generador === 'nutricion' ? 'primary' : 'secondary'}
+            onClick={() => setGenerador((v) => (v === 'nutricion' ? 'ninguno' : 'nutricion'))}
+          >
+            <Apple size={16} aria-hidden="true" />
+            Desde nutricion
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setGenerador((v) => (v === 'recetas' ? 'ninguno' : 'recetas'))}
+          >
+            <ListPlus size={16} aria-hidden="true" />
+            Desde recetas
+          </Button>
+        </div>
       </div>
 
-      {mostrarGenerador ? (
+      {generador === 'nutricion' ? (
+        <GeneradorNutricion householdId={householdId} onHecho={() => setGenerador('ninguno')} />
+      ) : null}
+
+      {generador === 'recetas' ? (
         <Card className="space-y-3">
           <SectionLabel>Recetas para la nueva lista</SectionLabel>
           <div className="grid grid-cols-2 gap-3">
@@ -155,7 +282,7 @@ export default function ListaPage() {
           )}
 
           <div className="flex items-center gap-3">
-            <Button type="button" variant="ghost" size="sm" onClick={() => setMostrarGenerador(false)}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setGenerador('ninguno')}>
               Cancelar
             </Button>
             <Button type="button" size="sm" onClick={onGenerar} disabled={recetasElegidas.length === 0 || generar.isPending}>
@@ -174,19 +301,24 @@ export default function ListaPage() {
         <EmptyState
           icon={ShoppingCart}
           title="Sin lista activa"
-          description="Genera una lista a partir de tus recetas para empezar."
-          action={{ label: 'Generar desde recetas', onClick: () => setMostrarGenerador(true) }}
+          description="Genera la compra a partir de tu plan de nutricion: lo que comes es lo que hay que comprar."
+          action={{ label: 'Generar desde nutricion', onClick: () => setGenerador('nutricion') }}
         />
       ) : items.length === 0 ? (
         <EmptyState icon={ShoppingCart} title="La lista esta vacia" description="Todavia no tiene productos." />
       ) : (
         <>
+          <AvisoDeHoy items={items} />
+
           <div className="grid grid-cols-2 gap-3">
             <StatCard label="Comprados" value={`${comprados} de ${items.length}`} accent="primary" />
             <StatCard label="Estimado" value={eur(totalEstimadoCentimos / 100)} accent="violet" />
           </div>
           <Card className="flex items-center justify-between">
-            <span className="text-sm text-fg-muted">Estimado vs gastado</span>
+            <span className="text-sm text-fg-muted">
+              {listaActiva.data.days > 0 ? `${listaActiva.data.days} dias · ` : ''}
+              Estimado vs gastado
+            </span>
             <span className="tnum text-sm font-medium text-fg">
               {eur(totalEstimadoCentimos / 100)} · {eur(totalRealCentimos / 100)}
             </span>
@@ -194,44 +326,58 @@ export default function ListaPage() {
 
           {eliminarItem.isError ? <p className="text-sm text-danger">No se pudo quitar la linea.</p> : null}
 
-          <ul className="space-y-2">
-            {items.map((item) => {
-              const origenes = origenesDeIngrediente(planSemana, item.ingredient)
-              return (
-                <li key={item.id}>
-                  <Card className={`flex items-center gap-3 transition-opacity duration-150 ${item.purchased ? 'opacity-60' : ''}`}>
-                    <Casilla
-                      marcado={item.purchased}
-                      ariaLabel={`Marcar ${item.name} como comprado`}
-                      onToggle={() => onToggleComprado(item)}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className={`truncate text-fg ${item.purchased ? 'line-through' : ''}`}>{item.name}</p>
-                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-fg-muted">
-                        <span>
-                          {item.amount} {item.unit}
-                        </span>
-                        <span aria-hidden="true">·</span>
-                        <span>{item.supermarket ?? 'Sin asignar'}</span>
-                      </p>
-                      {origenes.length > 0 ? (
-                        <p className="mt-0.5 truncate text-xs text-fg-subtle">para: {origenes.join(', ')}</p>
-                      ) : null}
-                    </div>
-                    <p className="tnum shrink-0 font-medium text-fg">{eur(item.estimated_price)}</p>
-                    <button
-                      type="button"
-                      aria-label={`Quitar ${item.name} de la lista`}
-                      onClick={() => setABorrar(item)}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
-                    >
-                      <Trash2 size={16} aria-hidden="true" />
-                    </button>
-                  </Card>
-                </li>
-              )
-            })}
-          </ul>
+          {tandas.map((tanda) => (
+            <section key={tanda.trip} className="space-y-2">
+              {/* Con una sola tanda no hay nada que separar: la cabecera solo
+                  estorbaria en una lista generada a mano o desde recetas. */}
+              {tandas.length > 1 ? (
+                <CabeceraTanda
+                  trip={tanda.trip}
+                  fecha={tanda.fecha}
+                  items={tanda.items.length}
+                  comprados={tanda.items.filter((i) => i.purchased).length}
+                  estimado={sumarCentimos(tanda.items.map((i) => eurosACentimos(i.estimated_price)))}
+                />
+              ) : null}
+
+              <ul className="space-y-2">
+                {tanda.items.map((item) => {
+                  // El origen viene del backend (`source`) en las listas nuevas.
+                  // En las que se generaron desde el planificador de recetas
+                  // sigue estando solo en localStorage, asi que se usa de reserva.
+                  const origenesLocales = origenesDeIngrediente(planSemana, item.ingredient)
+                  const conOrigen =
+                    item.source || origenesLocales.length === 0
+                      ? item
+                      : { ...item, source: origenesLocales.join(', ') }
+                  return (
+                    <li key={item.id}>
+                      <Card className={`flex items-center gap-3 transition-opacity duration-150 ${item.purchased ? 'opacity-60' : ''}`}>
+                        <Casilla
+                          marcado={item.purchased}
+                          ariaLabel={`Marcar ${item.name} como comprado`}
+                          onToggle={() => onToggleComprado(item)}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className={`truncate text-fg ${item.purchased ? 'line-through' : ''}`}>{item.name}</p>
+                          <PistasFrescura item={conOrigen} />
+                        </div>
+                        <p className="tnum shrink-0 font-medium text-fg">{eur(item.estimated_price)}</p>
+                        <button
+                          type="button"
+                          aria-label={`Quitar ${item.name} de la lista`}
+                          onClick={() => setABorrar(item)}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
+                      </Card>
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ))}
         </>
       )}
 

@@ -18,6 +18,8 @@ import { readTokens } from '../../lib/tokens'
 import { today } from '../../lib/format'
 import { costeIngredienteCentimos, eurosACentimos, repartoCompra, sumarCentimos } from './calculo'
 import type {
+  Cobertura,
+  GenerarDesdeNutricionPayload,
   GenerarListaPayload,
   Household,
   HouseholdMember,
@@ -224,6 +226,37 @@ async function cargarHousehold(): Promise<Household> {
   const hogar = almacen.households[0]!
   return retraso({ ...hogar, members: almacen.members.filter((m) => m.household === hogar.id) })
 }
+
+/**
+ * Rellena los campos de frescura que anadio el backend (tanda, categoria,
+ * fecha de compra...) en una linea del almacen de ejemplo. Solo se usa con
+ * BACKEND_LISTO = false: la API real ya los manda calculados.
+ */
+function lineaEjemplo(parcial: Omit<ShoppingListItem, keyof CamposFrescura> & Partial<CamposFrescura>): ShoppingListItem {
+  return {
+    category: '',
+    shelf_life_days: null,
+    trip: 1,
+    buy_date: null,
+    days_covered: 0,
+    freeze_on_arrival: false,
+    source: '',
+    note: '',
+    ...parcial,
+  }
+}
+
+type CamposFrescura = Pick<
+  ShoppingListItem,
+  | 'category'
+  | 'shelf_life_days'
+  | 'trip'
+  | 'buy_date'
+  | 'days_covered'
+  | 'freeze_on_arrival'
+  | 'source'
+  | 'note'
+>
 
 export function useHousehold() {
   return useQuery({ queryKey: claves.household, queryFn: cargarHousehold })
@@ -1019,23 +1052,28 @@ export function useGenerarLista() {
         name: `Lista ${payload.start_date} a ${payload.end_date}`,
         start_date: payload.start_date,
         end_date: payload.end_date,
+        nutrition_plan: '',
+        days: 0,
+        trips: [],
       }
       almacen.shoppingLists.push(lista)
 
       for (const [ingredientId, amount] of agregados) {
         const info = ingredienteMock(ingredientId)
         if (!info) continue
-        almacen.shoppingListItems.push({
-          id: siguienteId(),
-          shopping_list: id,
-          ingredient: ingredientId,
-          name: info.name,
-          amount: Math.round(amount),
-          unit: 'g',
-          estimated_price: (costeIngredienteCentimos(amount, info.precioCentimosPorKg) / 100).toFixed(2),
-          purchased: false,
-          supermarket: null,
-        })
+        almacen.shoppingListItems.push(
+          lineaEjemplo({
+            id: siguienteId(),
+            shopping_list: id,
+            ingredient: ingredientId,
+            name: info.name,
+            amount: Math.round(amount),
+            unit: 'g',
+            estimated_price: (costeIngredienteCentimos(amount, info.precioCentimosPorKg) / 100).toFixed(2),
+            purchased: false,
+            supermarket: null,
+          }),
+        )
       }
       return retraso(lista)
     },
@@ -1119,6 +1157,9 @@ export function useGenerarListaDesdePlan() {
           name: `Lista ${input.start_date} a ${input.end_date}`,
           start_date: input.start_date,
           end_date: input.end_date,
+          nutrition_plan: '',
+          days: 0,
+          trips: [],
         }
         almacen.shoppingLists.push(lista)
       }
@@ -1167,7 +1208,7 @@ export function useGenerarListaDesdePlan() {
         } else {
           const info = ingredienteMock(ingredientId)
           const precioCentimos = info ? costeIngredienteCentimos(amount, info.precioCentimosPorKg) : 0
-          const item: ShoppingListItem = {
+          const item: ShoppingListItem = lineaEjemplo({
             id: siguienteId(),
             shopping_list: lista.id,
             ingredient: ingredientId,
@@ -1177,7 +1218,7 @@ export function useGenerarListaDesdePlan() {
             estimated_price: (precioCentimos / 100).toFixed(2),
             purchased: false,
             supermarket: null,
-          }
+          })
           almacen.shoppingListItems.push(item)
           items.push(item)
         }
@@ -1194,6 +1235,49 @@ export function useGenerarListaDesdePlan() {
       qc.invalidateQueries({ queryKey: claves.shoppingList(lista.household) })
       qc.invalidateQueries({ queryKey: claves.shoppingListItems(lista.id) })
     },
+  })
+}
+
+// ================================================================
+// Nutricion -> compra: la lista sale de los platos del plan
+// ================================================================
+
+/**
+ * Genera la lista de la compra a partir del plan de nutricion.
+ *
+ * Es la sincronizacion que pedia el usuario: lo que hay apuntado en Desayuno,
+ * Comida, Cena y Snacks es exactamente lo que hay que comprar. Toda la cuenta
+ * la hace el backend (POST /shopping-list/from-nutrition/), incluido el
+ * reparto en tandas segun lo que aguante cada producto: por eso aqui no hay
+ * agregacion en el cliente, al contrario que en `useGenerarListaDesdePlan`,
+ * que suma recetas a mano porque el endpoint `generate` no sabe de tandas.
+ */
+export function useGenerarListaDesdeNutricion() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: GenerarDesdeNutricionPayload) =>
+      api.post<ShoppingList>(`${BASE}/shopping-list/from-nutrition/`, payload),
+    onSuccess: (lista) => {
+      qc.invalidateQueries({ queryKey: claves.shoppingList(lista.household) })
+      qc.invalidateQueries({ queryKey: claves.shoppingListItems(lista.id) })
+      qc.invalidateQueries({ queryKey: ['compra', 'cobertura'] })
+    },
+  })
+}
+
+/**
+ * Que platos de un dia tienen ya sus alimentos comprados.
+ *
+ * Lo lee la pantalla de Nutricion. `listId` sale de la lista activa del hogar;
+ * si no hay lista (o no salio de un plan de nutricion) la consulta no se
+ * lanza y la pantalla simplemente no ensena nada.
+ */
+export function useCobertura(listId: number, fecha: string) {
+  return useQuery({
+    queryKey: ['compra', 'cobertura', listId, fecha] as const,
+    queryFn: () => api.get<Cobertura>(`${BASE}/shopping-list/${listId}/coverage/?date=${fecha}`),
+    enabled: listId > 0 && fecha.length === 10,
+    staleTime: 60_000,
   })
 }
 
