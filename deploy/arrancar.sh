@@ -21,6 +21,11 @@ done
 echo "Aplicando migraciones..."
 python manage.py migrate --noinput
 
+echo "Creando la tabla de cache..."
+# Es donde DRF lleva la cuenta del limite de peticiones por IP. Idempotente:
+# si ya existe, no hace nada.
+python manage.py createcachetable
+
 echo "Recopilando estaticos..."
 python manage.py collectstatic --noinput
 

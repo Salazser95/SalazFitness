@@ -12,6 +12,7 @@
  * puede estorbar a quien no use el modulo de compra.
  */
 
+import { useMemo } from 'react'
 import { Check, ShoppingCart } from 'lucide-react'
 
 import { useCobertura, useHousehold, useListaActiva } from '../compra/datos'
@@ -28,8 +29,13 @@ export function useEstadoCompraPorComida(fecha: string): Map<string, CoberturaCo
   const listaId = lista.data?.nutrition_plan ? lista.data.id : 0
   const cobertura = useCobertura(listaId, fecha)
 
-  if (!cobertura.data) return null
-  return new Map(cobertura.data.meals.map((m) => [m.meal, m]))
+  // Memorizado: sin esto la Map es un objeto nuevo en cada render, y basta con
+  // que alguien la meta en un array de dependencias para provocar un bucle.
+  const comidas = cobertura.data?.meals
+  return useMemo(
+    () => (comidas ? new Map(comidas.map((m) => [m.meal, m])) : null),
+    [comidas],
+  )
 }
 
 const ESTILO: Record<EstadoCompraComida, { texto: string; clase: string }> = {

@@ -234,7 +234,11 @@ class ShoppingListViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return ShoppingList.objects.none()
-        return ShoppingList.objects.filter(household__owner=self.request.user)
+        # prefetch obligatorio: el serializer expone `trips`, que recorre las
+        # lineas de cada lista. Sin esto, listar N listas hace N consultas.
+        return ShoppingList.objects.filter(household__owner=self.request.user).prefetch_related(
+            'items'
+        )
 
     @action(detail=False, methods=['post'], url_path='from-nutrition')
     def from_nutrition(self, request):

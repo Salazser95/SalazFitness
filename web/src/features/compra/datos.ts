@@ -967,8 +967,13 @@ export function useCosteMedioPorComida(householdId: number) {
 
 async function cargarListaActiva(householdId: number): Promise<ShoppingList | null> {
   if (BACKEND_LISTO) {
-    const listas = await fetchAll<ShoppingList>(`${BASE}/shopping-list/?household=${householdId}`)
-    return listas[0] ?? null
+    // Solo se necesita la mas reciente (el backend ordena por -created), asi
+    // que se pide una y no todas: cada lista serializada arrastra el resumen
+    // de sus tandas, y paginarlas enteras seria trabajo tirado.
+    const pagina = await api.get<Paginated<ShoppingList>>(
+      `${BASE}/shopping-list/?household=${householdId}&limit=1`,
+    )
+    return pagina.results[0] ?? null
   }
   return retraso(almacen.shoppingLists.find((l) => l.household === householdId) ?? null)
 }

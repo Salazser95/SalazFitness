@@ -134,10 +134,19 @@ MEDIA_ROOT = _env('SALAZ_MEDIA_ROOT', '/srv/salaz/media')
 
 # ---------------------------------------------------------------- cache
 
+# La cache TIENE que ser compartida entre procesos, no de memoria local. El
+# limite de altas por IP (salaz/api/cuentas.py) lo lleva DRF apoyandose en
+# ella: con LocMemCache y tres workers de gunicorn, cada worker cuenta por su
+# cuenta y el limite real seria el triple, ademas de reiniciarse en cada
+# despliegue. Justo lo que se queria evitar.
+#
+# Se usa la propia base de datos en vez de anadir un Redis: el volumen de esta
+# app no lo justifica, y una pieza menos es una pieza menos que se cae. La
+# tabla la crea `manage.py createcachetable` al arrancar (ver deploy/arrancar.sh).
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'salaz-cache',
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'salaz_cache',
         'TIMEOUT': 300,
     }
 }

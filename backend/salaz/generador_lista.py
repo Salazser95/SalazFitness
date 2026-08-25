@@ -41,13 +41,27 @@ class Producto:
     nombre: str
     gramos_dia: Decimal
     ingredient_id: int | None = None
-    #: De donde sale: las comidas del plan, o la cesta de fruta y verdura.
-    origenes: list[str] = field(default_factory=list)
+    #: De donde sale, como (orden de la comida, nombre): las comidas del plan o
+    #: la cesta de fruta y verdura. El orden se guarda para poder ensenarlas
+    #: como estan en el plan y no como las devuelva la base de datos.
+    origenes: list[tuple[int, str]] = field(default_factory=list)
     nota: str = ''
 
     @property
     def origen(self) -> str:
-        return ', '.join(dict.fromkeys(self.origenes))
+        """
+        De que platos sale, en el orden del plan: 'Comida, Cena'.
+
+        Hay que ordenar explicitamente. Los `MealItem` se leen de una sola
+        consulta sin `order_by`, asi que llegan en el orden que quiera la base
+        de datos: sin esto, el pollo de la comida y la cena salia como
+        "Cena, Comida".
+        """
+        vistos: dict[str, int] = {}
+        for orden, nombre in self.origenes:
+            if nombre not in vistos or orden < vistos[nombre]:
+                vistos[nombre] = orden
+        return ', '.join(sorted(vistos, key=lambda n: (vistos[n], n)))
 
 
 def _gramos_de(item: MealItem) -> Decimal:
@@ -84,8 +98,12 @@ def productos_del_plan(plan_id: str) -> list[Producto]:
     if not comidas:
         return []
 
-    por_comida = {comida.id: (comida.name or f'Comida {comida.order}') for comida in comidas}
-    items = MealItem.objects.filter(meal_id__in=list(por_comida)).select_related('ingredient')
+    por_comida = {
+        comida.id: (comida.order, comida.name or f'Comida {comida.order}') for comida in comidas
+    }
+    items = MealItem.objects.filter(meal_id__in=list(por_comida)).select_related(
+        'ingredient', 'weight_unit'
+    )
 
     agregados: dict[int, Producto] = {}
     for item in items:
@@ -142,7 +160,8 @@ def anadir_cesta(productos: list[Producto], fruta_roja: bool = True) -> list[Pro
                 nombre=ingrediente.name if ingrediente else entrada.nombre,
                 gramos_dia=Decimal(entrada.gramos_dia),
                 ingredient_id=ingrediente.id if ingrediente else None,
-                origenes=['Fruta y verdura'],
+                # Orden alto: la cesta va detras de las comidas del plan.
+                origenes=[(999, 'Fruta y verdura')],
                 nota=entrada.motivo,
             )
         )

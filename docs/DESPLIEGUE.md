@@ -150,6 +150,27 @@ doméstico. Además hay límites por IP, declarados en
 
 El enlace del correo vale 48 horas.
 
+**Un detalle que importa:** DRF lleva la cuenta de esos límites en la caché de
+Django, y por eso `salaz_settings_prod.py` usa la caché en base de datos y no
+la de memoria. Con la de memoria, cada worker de gunicorn contaría por su
+cuenta —el límite real sería el triple— y se reiniciaría en cada despliegue. La
+tabla la crea `manage.py createcachetable`, que ya lanza `deploy/arrancar.sh`.
+
+---
+
+### Comprobar que todo esto funciona
+
+El módulo trae sus propias pruebas, que cubren el reparto en tandas, la
+cobertura hacia Nutrición y el alta con confirmación:
+
+```powershell
+cd C:\Proyectos\wger
+$env:DJANGO_SETTINGS_MODULE = "salaz_settings"
+.\.venv\Scripts\python.exe manage.py test salaz
+```
+
+En el servidor: `docker compose exec api python manage.py test salaz`.
+
 ---
 
 ## Traer los datos del SQLite de casa
