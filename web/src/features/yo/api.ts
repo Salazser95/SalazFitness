@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, fetchAll } from '../../lib/api'
+import { urlApi } from '../../lib/config'
 import { readTokens } from '../../lib/tokens'
 import { today } from '../../lib/format'
 
@@ -225,7 +226,7 @@ export function useUploadGalleryPhoto() {
       body.append('date', today())
       body.append('image', file)
 
-      const res = await fetch('/api/v2/gallery/', {
+      const res = await fetch(urlApi('/api/v2/gallery/'), {
         method: 'POST',
         headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : undefined,
         body,

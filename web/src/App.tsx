@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   Apple,
@@ -20,6 +20,9 @@ const Entreno = lazy(() => import('./features/entreno/EntrenoPage'))
 const Nutricion = lazy(() => import('./features/nutricion/NutricionPage'))
 const Compra = lazy(() => import('./features/compra/CompraPage'))
 const Yo = lazy(() => import('./features/yo/YoPage'))
+// Publicas: se abren sin sesion, porque quien se registra todavia no tiene.
+const Registro = lazy(() => import('./features/cuenta/RegistroPage'))
+const Verificar = lazy(() => import('./features/cuenta/VerificarPage'))
 
 // Cinco destinos como máximo en la barra inferior. Ver docs/DESIGN-SYSTEM.md.
 // labelKey es la clave de i18n (ver src/i18n/es-ES.json), resuelta en NavItem
@@ -77,7 +80,13 @@ function LoginPage() {
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-fg-subtle">{t('login.privacidad')}</p>
+        <p className="mt-6 text-center text-sm text-fg-muted">
+          <Link to="/registro" className="text-primary hover:underline">
+            Crear una cuenta
+          </Link>
+        </p>
+
+        <p className="mt-4 text-center text-xs text-fg-subtle">{t('login.privacidad')}</p>
       </div>
     </main>
   )
@@ -177,7 +186,20 @@ export default function App() {
     return () => window.removeEventListener(SESSION_EXPIRED, onExpired)
   }, [expire])
 
-  if (!authenticated) return <LoginPage />
+  // Sin sesion solo se llega al login y a las dos pantallas de cuenta. El
+  // enlace del correo apunta a /verificar, asi que tiene que abrirse tal cual
+  // sin pasar antes por el login.
+  if (!authenticated) {
+    return (
+      <Suspense fallback={<SkeletonList rows={3} height="h-16" />}>
+        <Routes>
+          <Route path="/registro" element={<Registro />} />
+          <Route path="/verificar" element={<Verificar />} />
+          <Route path="*" element={<LoginPage />} />
+        </Routes>
+      </Suspense>
+    )
+  }
 
   return (
     <AppShell>
@@ -188,6 +210,7 @@ export default function App() {
         <Route path="/nutricion/*" element={<Nutricion />} />
         <Route path="/compra/*" element={<Compra />} />
         <Route path="/yo" element={<Yo />} />
+        <Route path="/verificar" element={<Verificar />} />
         <Route path="*" element={<Navigate to="/hoy" replace />} />
       </Routes>
     </AppShell>

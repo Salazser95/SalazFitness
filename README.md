@@ -15,6 +15,7 @@ y reparto de coste por persona.
 SalazFitness/
 ├── web/               PWA en React 19 + TypeScript + Vite + Tailwind v4
 ├── backend/           Módulo Django que añade compra, coste, recetas y hogar
+├── deploy/            MySQL, gunicorn y nginx en contenedores
 ├── scripts/           Instalación y generador de rutinas (PowerShell)
 └── docs/              Contrato de la API, sistema de diseño y arquitectura
 ```
@@ -28,6 +29,7 @@ se pueden traer sin conflictos.
 | Decisión | Motivo |
 |---|---|
 | Reutilizar wger en vez de partir de cero | Las 177.302 fichas de alimentos y los 872 ejercicios son años de trabajo. Rehacerlos no aporta nada |
+| MySQL en el servidor (SQLite solo en el portátil) | wger está escrito sobre el ORM de Django, que no habla MongoDB. Y los datos son relacionales: una compra tiene líneas, cada línea un alimento, cada alimento precios. Ver [`docs/DESPLIEGUE.md`](docs/DESPLIEGUE.md) |
 | Frontend nuevo en vez de tocar el de wger | Es donde está el valor: una interfaz pensada para el gimnasio, no un panel de administración |
 | PWA en vez de app nativa | Un solo código para web, Android e iPhone. Sin tiendas, sin Xcode, sin Mac, sin cuenta de Apple Developer |
 | Módulo Django aparte | El fork de wger queda intacto y `git merge upstream/master` sigue funcionando |
@@ -37,8 +39,10 @@ se pueden traer sin conflictos.
 | Dónde | Cómo | Requisitos |
 |---|---|---|
 | Navegador | `http://localhost:5173` | Ninguno |
-| Android | Abrir la URL en Chrome y "Añadir a pantalla de inicio" | Ninguno |
+| Android (PWA) | Abrir la URL en Chrome y "Añadir a pantalla de inicio" | Ninguno |
+| Android (APK) | GitHub → Actions → "APK de Android" → *Run workflow* | Ninguno: lo compila GitHub |
 | iPhone | Abrir la URL en Safari y "Añadir a pantalla de inicio" | Ninguno. **Sin Apple Developer** |
+| iPhone (app nativa) | `npx cap add ios` y Xcode | Un Mac. Sin cuenta de pago, la app caduca a los 7 días |
 | Windows | Instalar la PWA desde Edge o Chrome | Ninguno |
 | Alternativa móvil | App oficial de wger apuntando al mismo servidor | Play Store, F-Droid o App Store |
 
@@ -120,11 +124,25 @@ New-NetFirewallRule -DisplayName "SalazFitness" -Direction Inbound -Protocol TCP
 | [`docs/API-CONTRACT.md`](docs/API-CONTRACT.md) | Todos los endpoints, verificados uno a uno contra el servidor real |
 | [`docs/DESIGN-SYSTEM.md`](docs/DESIGN-SYSTEM.md) | Colores, tipografía, movimiento, componentes y accesibilidad |
 | [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) | Cómo encajan las piezas y cómo se actualiza wger sin romper nada |
+| [`docs/DESPLIEGUE.md`](docs/DESPLIEGUE.md) | Servidor con MySQL, cuentas con confirmación por correo, APK de Android y app de iPhone |
+
+## Puesta en marcha en un servidor
+
+Para no depender del PC encendido, hay un despliegue completo en `deploy/`:
+MySQL, gunicorn y nginx en contenedores, con alta de usuarios por correo
+confirmado. Está explicado paso a paso en
+[`docs/DESPLIEGUE.md`](docs/DESPLIEGUE.md).
+
+```bash
+cd web && npm ci && npm run build
+cd ../deploy && cp .env.example .env   # y rellenarlo
+docker compose --env-file .env up -d --build
+```
 
 ## Privacidad
 
-Los datos de entrenamiento, peso, comidas y compras se quedan en el SQLite de tu
-servidor. No hay telemetría, ni analítica, ni cuentas de terceros, ni IA. Las
+Los datos de entrenamiento, peso, comidas y compras se quedan en la base de
+datos de tu servidor. No hay telemetría, ni analítica, ni cuentas de terceros, ni IA. Las
 únicas peticiones que salen son a `wger.de` y Open Food Facts para **descargar**
 catálogos de ejercicios y alimentos.
 

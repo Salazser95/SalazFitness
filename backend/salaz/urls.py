@@ -1,9 +1,10 @@
 from django.urls import include, path
 from rest_framework import routers
 
-from salaz.api import views
+from salaz.api import cuentas, views
 
 router = routers.DefaultRouter()
+router.register(r'salaz/account', cuentas.AccountViewSet, basename='salaz-account')
 router.register(r'salaz/household', views.HouseholdViewSet, basename='salaz-household')
 router.register(
     r'salaz/household-member',

@@ -20,6 +20,8 @@ import {
   usePlanInfo,
 } from './api'
 import type { DiaryEntry, Ingredient, Macros, MealName } from './api'
+import type { CoberturaComida } from '../compra/tipos'
+import { EtiquetaCompra, useEstadoCompraPorComida } from './EstadoCompra'
 import { AGUA_OBJETIVO_ML_DEFECTO, AGUA_VASO_ML, escribirAgua, leerAgua } from './local'
 import { int, num, shortDate, today } from '../../lib/format'
 
@@ -214,19 +216,25 @@ function SeccionComida({
   nombre,
   mealId,
   items,
+  estadoCompra,
   onAgregar,
   onEliminar,
 }: {
   nombre: MealName
   mealId: string | undefined
   items: EntradaConMacros[]
+  /** Si sus alimentos estan comprados. Undefined si no hay lista de la compra. */
+  estadoCompra: CoberturaComida | undefined
   onAgregar: () => void
   onEliminar: (id: string) => void
 }) {
   return (
     <Card>
-      <div className="mb-3 flex items-center justify-between">
-        <SectionLabel>{nombre}</SectionLabel>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <SectionLabel>{nombre}</SectionLabel>
+          <EtiquetaCompra estado={estadoCompra} />
+        </div>
         <Button variant="ghost" size="sm" onClick={onAgregar} disabled={!mealId}>
           <Plus size={16} aria-hidden="true" />
           Anadir
@@ -301,6 +309,8 @@ export default function DiarioPage() {
 
   const idsIngredientes = useMemo(() => (diario.data ?? []).map((e) => e.ingredient), [diario.data])
   const ingredientes = useIngredientesPorIds(idsIngredientes)
+  // Antes de los returns tempranos: es un hook y tiene que llamarse siempre.
+  const estadoCompra = useEstadoCompraPorComida(fecha)
 
   if (plan.isLoading) return <SkeletonList rows={4} height="h-24" />
   if (plan.isError) return <ErrorState onRetry={() => plan.refetch()} />
@@ -373,6 +383,7 @@ export default function DiarioPage() {
             nombre={nombre}
             mealId={meal?.id}
             items={items}
+            estadoCompra={meal ? estadoCompra?.get(meal.id) : undefined}
             onAgregar={() => meal && navigate(`/nutricion/buscar?meal=${meal.id}&fecha=${fecha}`)}
             onEliminar={(id) => eliminar.mutate(id)}
           />

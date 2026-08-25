@@ -1,0 +1,86 @@
+# SalazFitness en un servidor, con MySQL.
+#
+# Tres contenedores:
+#   db     MySQL 8, con los datos en un volumen que sobrevive a los reinicios
+#   api    wger + el modulo salaz, servido con gunicorn
+#   web    nginx: sirve la PWA ya compilada y pasa /api y /allauth al backend
+#
+# Arrancar:  docker compose --env-file .env up -d --build
+# Ver logs:  docker compose logs -f api
+#
+# Antes hay que compilar el frontend (ver docs/DESPLIEGUE.md):
+#   cd web && VITE_API_BASE= npm run build
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${SALAZ_DB_NAME}
+      MYSQL_USER: ${SALAZ_DB_USER}
+      MYSQL_PASSWORD: ${SALAZ_DB_PASSWORD}
+    command:
+      # utf8mb4 en el servidor tambien, no solo en el cliente: si no, los
+      # nombres con tilde de los alimentos se guardan mal.
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - datos-mysql:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-p${MYSQL_ROOT_PASSWORD}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # La base de datos NO publica puerto: solo se llega a ella desde la red
+    # interna de compose. Un MySQL abierto a internet dura horas.
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: salaz_settings_prod
+      SALAZ_SECRET_KEY: ${SALAZ_SECRET_KEY}
+      SALAZ_ALLOWED_HOSTS: ${SALAZ_ALLOWED_HOSTS}
+      SALAZ_APP_URL: ${SALAZ_APP_URL}
+      SALAZ_FORCE_HTTPS: ${SALAZ_FORCE_HTTPS:-1}
+      SALAZ_DB_NAME: ${SALAZ_DB_NAME}
+      SALAZ_DB_USER: ${SALAZ_DB_USER}
+      SALAZ_DB_PASSWORD: ${SALAZ_DB_PASSWORD}
+      SALAZ_DB_HOST: db
+      SALAZ_DB_PORT: 3306
+      SALAZ_EMAIL_HOST: ${SALAZ_EMAIL_HOST}
+      SALAZ_EMAIL_PORT: ${SALAZ_EMAIL_PORT:-587}
+      SALAZ_EMAIL_USER: ${SALAZ_EMAIL_USER}
+      SALAZ_EMAIL_PASSWORD: ${SALAZ_EMAIL_PASSWORD}
+      SALAZ_EMAIL_TLS: ${SALAZ_EMAIL_TLS:-1}
+      SALAZ_EMAIL_FROM: ${SALAZ_EMAIL_FROM}
+      SALAZ_CORS_ORIGINS: ${SALAZ_CORS_ORIGINS:-}
+      SALAZ_CREAR_USUARIO_PRUEBA: ${SALAZ_CREAR_USUARIO_PRUEBA:-}
+    volumes:
+      - estaticos:/srv/salaz/static
+      - subidas:/srv/salaz/media
+
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '80:80'
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # La PWA ya compilada. Se genera con `npm run build` en web/.
+      - ../web/dist:/usr/share/nginx/html:ro
+      - estaticos:/srv/salaz/static:ro
+      - subidas:/srv/salaz/media:ro
+
+volumes:
+  datos-mysql:
+  estaticos:
+  subidas:
