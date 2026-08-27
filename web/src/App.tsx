@@ -23,6 +23,8 @@ const Yo = lazy(() => import('./features/yo/YoPage'))
 // Publicas: se abren sin sesion, porque quien se registra todavia no tiene.
 const Registro = lazy(() => import('./features/cuenta/RegistroPage'))
 const Verificar = lazy(() => import('./features/cuenta/VerificarPage'))
+// Tambien publica: hay que poder leer las condiciones antes de crear cuenta.
+const Legal = lazy(() => import('./features/legal/LegalPage'))
 
 // Cinco destinos como máximo en la barra inferior. Ver docs/DESIGN-SYSTEM.md.
 // labelKey es la clave de i18n (ver src/i18n/es-ES.json), resuelta en NavItem
@@ -121,6 +123,33 @@ function NavItem({ dest, vertical }: { dest: Destino; vertical: boolean }) {
   )
 }
 
+// Pie de pagina de toda la app. La atribucion a wger es obligatoria por la
+// AGPL-3.0 (el proyecto deriva de wger, ver NOTICE) y no se puede quitar.
+function Footer() {
+  return (
+    <footer className="mt-10 space-y-1 border-t border-border pt-4 text-xs text-fg-subtle">
+      <p>
+        © 2026 Szabi Szalasi ·{' '}
+        <Link to="/legal" className="hover:text-fg-muted hover:underline">
+          Condiciones de uso
+        </Link>
+      </p>
+      <p>
+        Basado en{' '}
+        <a
+          href="https://github.com/wger-project/wger"
+          target="_blank"
+          rel="noreferrer"
+          className="hover:text-fg-muted hover:underline"
+        >
+          wger
+        </a>{' '}
+        (AGPL-3.0)
+      </p>
+    </footer>
+  )
+}
+
 function AppShell({ children }: { children: React.ReactNode }) {
   const { username, signOut } = useAuth()
   const { pathname } = useLocation()
@@ -161,6 +190,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-28 pt-6 lg:pb-10">
           <Suspense fallback={<SkeletonList rows={4} height="h-24" />}>{children}</Suspense>
+          <Footer />
         </main>
       </div>
 
@@ -195,6 +225,15 @@ export default function App() {
         <Routes>
           <Route path="/registro" element={<Registro />} />
           <Route path="/verificar" element={<Verificar />} />
+          {/* Sin AppShell todavia, asi que aqui hay que poner el margen a mano. */}
+          <Route
+            path="/legal"
+            element={
+              <main className="mx-auto w-full max-w-3xl px-4 py-8">
+                <Legal />
+              </main>
+            }
+          />
           <Route path="*" element={<LoginPage />} />
         </Routes>
       </Suspense>
@@ -211,6 +250,7 @@ export default function App() {
         <Route path="/compra/*" element={<Compra />} />
         <Route path="/yo" element={<Yo />} />
         <Route path="/verificar" element={<Verificar />} />
+        <Route path="/legal" element={<Legal />} />
         <Route path="*" element={<Navigate to="/hoy" replace />} />
       </Routes>
     </AppShell>
