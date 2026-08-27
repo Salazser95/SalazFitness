@@ -274,6 +274,79 @@ comprados. Lo consume el diario de Nutrición.
 `status` es `comprado`, `parcial`, `pendiente` o `sin_datos`. Una línea cubre
 una fecha si `buy_date <= fecha < buy_date + days_covered`.
 
+### Sincronización entre dispositivos
+
+Siete datos que hasta ahora vivían solo en el `localStorage` del navegador (y
+por tanto no viajaban entre el PC, el emulador de Android y el iPhone del
+dueño). Todos siguen el mismo patrón:
+
+- **`GET`** filtra siempre por el usuario autenticado — nunca se ve el dato de
+  otra persona, ni siquiera con el id exacto.
+- **`POST` hace un upsert**, no una creación estricta: escribir la misma clave
+  otra vez (mismo `date`, mismo `household`, misma `key`...) actualiza la fila
+  existente en vez de fallar con un conflicto de unicidad. El cliente manda lo
+  que tiene y no necesita saber si ya existía.
+- Todas las respuestas llevan `updated_at` en solo lectura. Es la pieza que
+  implementa **"última escritura gana"**: el servidor no fusiona cambios ni
+  guarda historial, simplemente cada escritura pisa a la anterior; `updated_at`
+  es lo que le permite a un cliente saber cuándo se escribió por última vez.
+  `PATCH /{id}/` sigue disponible para actualizaciones normales.
+
+| Ruta | Modelo | Clave de upsert | Antes vivía en |
+|---|---|---|---|
+| `/api/v2/salaz/water-log/` | agua del día | `(usuario, date)` | `salaz.agua.{fecha}` |
+| `/api/v2/salaz/weight-goal/` | objetivo de peso | `usuario` (uno solo) | `salaz.objetivo.*` |
+| `/api/v2/salaz/weekly-plan/` | plan semanal de recetas | `household` (uno solo) | `salaz.plan.semana` |
+| `/api/v2/salaz/favorite-ingredient/` | alimentos favoritos | `(usuario, ingredient)` | `salaz.alimentos.favoritos` |
+| `/api/v2/salaz/recent-ingredient/` | alimentos recientes | `(usuario, ingredient)` | `salaz.alimentos.recientes` |
+| `/api/v2/salaz/workout-session-draft/` | sesión de entreno en curso | `(usuario, date)` | `salaz.sesion.{...}` |
+| `/api/v2/salaz/device-state/` | rutina activa / plan activo | `(usuario, key)` | `salaz.entreno.rutinaActivaId`, `salaz.nutricion.planActivoId` |
+
+Detalle de cada uno:
+
+```jsonc
+// POST /api/v2/salaz/water-log/   { "date": "2026-08-27", "milliliters": 750 }
+// -> 200, { "id": 1, "user": 3, "date": "2026-08-27", "milliliters": 750, "updated_at": "..." }
+
+// POST /api/v2/salaz/weight-goal/
+//   { "goal_type": "perder_peso", "target_weight": "78.50", "target_date": "2026-12-31" }
+// goal_type: perder_peso | mantener_peso | ganar_peso | ganar_masa_muscular
+//            | mejorar_fuerza | recomposicion_corporal (mismos valores que
+//            TIPOS_OBJETIVO en web/src/features/yo/objetivo.ts)
+// -> 200, un objetivo por usuario: un segundo POST actualiza el mismo.
+
+// POST /api/v2/salaz/weekly-plan/
+//   {
+//     "household": 1,
+//     "start_date": "2026-08-24", "end_date": "2026-09-06",
+//     "selection": [{ "recipeId": 1, "recipeName": "Arroz", "tandas": 2 }],
+//     "by_day": [{ "fecha": "2026-08-24", "recipeId": 1, "recipeName": "Arroz" }],
+//     "ingredient_origins": { "5": ["Arroz"] }
+//   }
+// household tiene que ser de tu propiedad (404 si no). Un plan por hogar.
+// selection, by_day e ingredient_origins son JSON libre: la misma forma que
+// PlanSemana en web/src/features/compra/planLocal.ts.
+
+// POST /api/v2/salaz/favorite-ingredient/   { "ingredient": 1234 }
+// -> 201. Marcar dos veces el mismo ingredient no duplica ni falla.
+// DELETE /api/v2/salaz/favorite-ingredient/{id}/  para quitarlo.
+
+// POST /api/v2/salaz/recent-ingredient/   { "ingredient": 1234 }
+// -> 201. Registrar un alimento que ya estaba en recientes lo sube al
+// principio (no lo duplica). Tope de 30: al superarlo se recorta el más
+// antiguo por updated_at.
+
+// POST /api/v2/salaz/workout-session-draft/
+//   { "date": "2026-08-27", "content": { /* SesionProgreso completo */ } }
+// content es JSON libre: la misma forma que SesionProgreso en
+// web/src/features/entreno/lib/sesionStorage.ts. Un borrador por (usuario, fecha).
+
+// POST /api/v2/salaz/device-state/   { "key": "rutina_activa", "value": "42" }
+// key: "rutina_activa" | "plan_activo" (400 con cualquier otra). value es
+// siempre texto: el id de rutina y el uuid del plan de nutricion se guardan
+// como string.
+```
+
 ### Cuentas
 
 Los únicos endpoints que se llaman **sin sesión**: quien se registra todavía no

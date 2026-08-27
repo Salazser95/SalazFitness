@@ -1,15 +1,22 @@
 from rest_framework import serializers
 
 from salaz.models import (
+    DeviceState,
+    FavoriteIngredient,
     Household,
     HouseholdMember,
     IngredientPrice,
     Purchase,
     PurchaseItem,
+    RecentIngredient,
     Recipe,
     RecipeIngredient,
     ShoppingList,
     ShoppingListItem,
+    WaterLog,
+    WeeklyPlan,
+    WeightGoal,
+    WorkoutSessionDraft,
 )
 
 
@@ -205,3 +212,89 @@ class ShoppingListItemSerializer(serializers.ModelSerializer):
             item.aplicar_frescura(item.shopping_list.days or 0)
         item.save()
         return item
+
+
+# --------------------------------------------------------------------------
+# Datos que antes solo vivian en localStorage (ver la tarea de sincronizacion
+# entre PC, Android e iPhone). Todos exponen `updated_at` en solo lectura:
+# es la pieza que deja decidir "ultima escritura gana" al cliente, ver la nota
+# en salaz/models/device_state.py.
+# --------------------------------------------------------------------------
+
+
+class WaterLogSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WaterLog
+        fields = ['id', 'user', 'date', 'milliliters', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class WeightGoalSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WeightGoal
+        fields = ['id', 'user', 'goal_type', 'target_weight', 'target_date', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class WeeklyPlanSerializer(serializers.ModelSerializer):
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WeeklyPlan
+        fields = [
+            'id',
+            'household',
+            'start_date',
+            'end_date',
+            'selection',
+            'by_day',
+            'ingredient_origins',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'household', 'updated_at']
+
+
+class FavoriteIngredientSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = FavoriteIngredient
+        fields = ['id', 'user', 'ingredient', 'created', 'updated_at']
+        read_only_fields = ['id', 'user', 'created', 'updated_at']
+
+
+class RecentIngredientSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = RecentIngredient
+        fields = ['id', 'user', 'ingredient', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class WorkoutSessionDraftSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WorkoutSessionDraft
+        fields = ['id', 'user', 'date', 'content', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class DeviceStateSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = DeviceState
+        fields = ['id', 'user', 'key', 'value', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']

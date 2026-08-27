@@ -10,28 +10,43 @@ from rest_framework.response import Response
 
 from salaz import frescura
 from salaz.api.serializers import (
+    DeviceStateSerializer,
+    FavoriteIngredientSerializer,
     HouseholdMemberSerializer,
     HouseholdSerializer,
     IngredientPriceSerializer,
     PurchaseItemSerializer,
     PurchaseSerializer,
+    RecentIngredientSerializer,
     RecipeIngredientSerializer,
     RecipeSerializer,
     ShoppingListItemSerializer,
     ShoppingListSerializer,
+    WaterLogSerializer,
+    WeeklyPlanSerializer,
+    WeightGoalSerializer,
+    WorkoutSessionDraftSerializer,
 )
 from salaz.generador_lista import anadir_cesta, generar_lista, productos_del_plan
 from salaz.models import (
+    DeviceState,
+    FavoriteIngredient,
     Household,
     HouseholdMember,
     IngredientPrice,
     Purchase,
     PurchaseItem,
+    RecentIngredient,
     Recipe,
     RecipeIngredient,
     ShoppingList,
     ShoppingListItem,
+    WaterLog,
+    WeeklyPlan,
+    WeightGoal,
+    WorkoutSessionDraft,
 )
+from salaz.models.recent_ingredient import MAX_RECIENTES
 from wger.nutrition.models import Ingredient, Meal, MealItem, NutritionPlan
 
 
@@ -459,3 +474,214 @@ class ShoppingListItemViewSet(viewsets.ModelViewSet):
         if getattr(self, 'swagger_fake_view', False):
             return ShoppingListItem.objects.none()
         return ShoppingListItem.objects.filter(shopping_list__household__owner=self.request.user)
+
+
+# ----------------------------------------------------------------------------
+# Datos que antes solo vivian en el localStorage del navegador (ver la tarea
+# de sincronizacion entre PC, Android e iPhone del dueno). Todos comparten dos
+# rasgos:
+#
+#   - get_queryset filtra SIEMPRE por el usuario que llama, igual que el resto
+#     del modulo: nunca se expone una fila de otro usuario.
+#   - `create()` hace un upsert (get_or_create + actualizar) en vez de fallar
+#     con un IntegrityError si ya existia una fila para esa clave. El cliente
+#     no tiene que acordarse de si ya mando este dato antes: manda lo que
+#     tiene y el servidor decide crear o pisar. Esto es justo lo que hace
+#     "ultima escritura gana" simple de implementar en el cliente.
+# ----------------------------------------------------------------------------
+
+
+class WaterLogViewSet(viewsets.ModelViewSet):
+    """Agua bebida por dia. Un registro por (usuario, fecha); escribir el mismo dia lo actualiza."""
+
+    serializer_class = WaterLogSerializer
+    is_private = True
+    filterset_fields = ('date',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WaterLog.objects.none()
+        return WaterLog.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        fecha = _parse_date(request.data.get('date'))
+        if fecha is None:
+            return Response(
+                {'detail': 'date is required and must be YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        instance, _ = WaterLog.objects.get_or_create(user=request.user, date=fecha)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class WeightGoalViewSet(viewsets.ModelViewSet):
+    """El objetivo de peso vigente del usuario. Uno solo: crear vuelve a escribir el mismo."""
+
+    serializer_class = WeightGoalSerializer
+    is_private = True
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WeightGoal.objects.none()
+        return WeightGoal.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        instance, _ = WeightGoal.objects.get_or_create(user=request.user)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class WeeklyPlanViewSet(viewsets.ModelViewSet):
+    """El plan semanal vigente de un hogar. Uno solo: crear vuelve a escribir el mismo."""
+
+    serializer_class = WeeklyPlanSerializer
+    is_private = True
+    filterset_fields = ('household',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WeeklyPlan.objects.none()
+        return WeeklyPlan.objects.filter(household__owner=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Solo un hogar del propio usuario puede recibir un plan: sin esto,
+        # cualquiera podria escribir el plan semanal de un hogar ajeno con
+        # solo adivinar su id.
+        household = get_object_or_404(Household, pk=household_id, owner=request.user)
+        instance = WeeklyPlan.objects.filter(household=household).first()
+        if instance is None:
+            for campo in ('start_date', 'end_date'):
+                if not request.data.get(campo):
+                    return Response(
+                        {'detail': f'{campo} is required.'}, status=status.HTTP_400_BAD_REQUEST
+                    )
+            instance = WeeklyPlan(household=household)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class FavoriteIngredientViewSet(viewsets.ModelViewSet):
+    """Alimentos marcados como favoritos por el usuario."""
+
+    serializer_class = FavoriteIngredientSerializer
+    is_private = True
+    filterset_fields = ('ingredient',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return FavoriteIngredient.objects.none()
+        return FavoriteIngredient.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        ingredient_id = request.data.get('ingredient')
+        if not ingredient_id:
+            return Response({'detail': 'ingredient is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        ingredient = get_object_or_404(Ingredient, pk=ingredient_id)
+        # Marcar dos veces el mismo favorito no es un error: simplemente ya
+        # estaba. Sin esto, el segundo POST desde otro dispositivo rompia con
+        # un IntegrityError por la unicidad (usuario, ingrediente).
+        instance, _ = FavoriteIngredient.objects.get_or_create(user=request.user, ingredient=ingredient)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class RecentIngredientViewSet(viewsets.ModelViewSet):
+    """
+    Ultimos alimentos usados por el usuario. Tope de MAX_RECIENTES, orden por
+    fecha de uso: registrar uno que ya estaba lo sube al principio en vez de
+    duplicarlo, e igual que en el cliente (ver recent_ingredient.py) se
+    recorta lo mas viejo al pasarse del tope.
+    """
+
+    serializer_class = RecentIngredientSerializer
+    is_private = True
+    filterset_fields = ('ingredient',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return RecentIngredient.objects.none()
+        return RecentIngredient.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        ingredient_id = request.data.get('ingredient')
+        if not ingredient_id:
+            return Response({'detail': 'ingredient is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        ingredient = get_object_or_404(Ingredient, pk=ingredient_id)
+        instance, created = RecentIngredient.objects.get_or_create(user=request.user, ingredient=ingredient)
+        if not created:
+            # auto_now en updated_at hace el resto: guardar sin cambios ya
+            # sube este registro al principio de la lista ordenada por fecha.
+            instance.save()
+
+        ids_a_conservar = list(
+            RecentIngredient.objects.filter(user=request.user)
+            .order_by('-updated_at')
+            .values_list('id', flat=True)[:MAX_RECIENTES]
+        )
+        RecentIngredient.objects.filter(user=request.user).exclude(id__in=ids_a_conservar).delete()
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WorkoutSessionDraftViewSet(viewsets.ModelViewSet):
+    """Progreso guardado de una sesion de entrenamiento aun sin terminar. Uno por (usuario, fecha)."""
+
+    serializer_class = WorkoutSessionDraftSerializer
+    is_private = True
+    filterset_fields = ('date',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WorkoutSessionDraft.objects.none()
+        return WorkoutSessionDraft.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        fecha = _parse_date(request.data.get('date'))
+        if fecha is None:
+            return Response(
+                {'detail': 'date is required and must be YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        instance, _ = WorkoutSessionDraft.objects.get_or_create(user=request.user, date=fecha)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class DeviceStateViewSet(viewsets.ModelViewSet):
+    """
+    Preferencias clave/valor que cruzan dispositivos (rutina activa, plan de
+    nutricion activo). Ver la nota completa sobre "ultima escritura gana" en
+    salaz/models/device_state.py.
+    """
+
+    serializer_class = DeviceStateSerializer
+    is_private = True
+    filterset_fields = ('key',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return DeviceState.objects.none()
+        return DeviceState.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        key = request.data.get('key')
+        if key not in dict(DeviceState.KEY_CHOICES):
+            return Response({'detail': 'key must be one of rutina_activa, plan_activo.'}, status=status.HTTP_400_BAD_REQUEST)
+        instance, _ = DeviceState.objects.get_or_create(user=request.user, key=key)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)

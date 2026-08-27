@@ -30,6 +30,25 @@ router.register(
     views.ShoppingListItemViewSet,
     basename='salaz-shopping-list-item',
 )
+router.register(r'salaz/water-log', views.WaterLogViewSet, basename='salaz-water-log')
+router.register(r'salaz/weight-goal', views.WeightGoalViewSet, basename='salaz-weight-goal')
+router.register(r'salaz/weekly-plan', views.WeeklyPlanViewSet, basename='salaz-weekly-plan')
+router.register(
+    r'salaz/favorite-ingredient',
+    views.FavoriteIngredientViewSet,
+    basename='salaz-favorite-ingredient',
+)
+router.register(
+    r'salaz/recent-ingredient',
+    views.RecentIngredientViewSet,
+    basename='salaz-recent-ingredient',
+)
+router.register(
+    r'salaz/workout-session-draft',
+    views.WorkoutSessionDraftViewSet,
+    basename='salaz-workout-session-draft',
+)
+router.register(r'salaz/device-state', views.DeviceStateViewSet, basename='salaz-device-state')
 
 urlpatterns = [
     path('api/v2/', include(router.urls)),
