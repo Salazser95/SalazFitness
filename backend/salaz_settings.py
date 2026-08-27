@@ -93,9 +93,14 @@ CORS_ALLOWED_ORIGINS = list(globals().get('CORS_ALLOWED_ORIGINS', [])) + [
 # necesita la IP de la red local (192.168.x.x o 10.x.x.x) en el puerto de Vite
 # y en el del propio backend. Una IP concreta cambia con el router, asi que se
 # permite el rango entero en vez de mantener una IP fija a mano.
+# Los tres rangos privados de la RFC 1918, no solo los dos habituales: la red
+# de casa del dueno es 172.17.x.x, que cae en el tercero (172.16-31) y se
+# quedaba fuera. El emulador de Android ve al PC como 10.0.2.2, cubierto por el
+# segundo.
 CORS_ALLOWED_ORIGIN_REGEXES = list(globals().get('CORS_ALLOWED_ORIGIN_REGEXES', [])) + [
     r'^http://192\.168\.\d{1,3}\.\d{1,3}:(5173|8000)$',
     r'^http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}:(5173|8000)$',
+    r'^http://172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:(5173|8000)$',
 ]
 CORS_ALLOW_CREDENTIALS = True
 
