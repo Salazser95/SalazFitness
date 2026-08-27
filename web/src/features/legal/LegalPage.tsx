@@ -43,7 +43,7 @@ export default function LegalPage() {
         <Card>
           <SectionLabel>Titular</SectionLabel>
           <p className="text-fg">Szabi Szalasi</p>
-          <p className="mt-1 text-sm text-fg-muted">Telefono: +376 342336</p>
+          <p className="mt-1 text-sm text-fg-muted">Teléfono: +376 342336</p>
           <p className="text-sm text-fg-muted">Correo: ibassalaz@gmail.com</p>
           <p className="mt-2 text-sm text-fg-muted">
             Desarrollo realizado en el Principado de Andorra.
@@ -57,8 +57,8 @@ export default function LegalPage() {
               aria-hidden="true"
             />
             <p className="text-sm text-warning">
-              Pendiente de alta: NRT, domicilio social y forma juridica todavia no estan
-              asignados. Se completaran aqui en cuanto el titular se dé de alta como autonomo o
+              Pendiente de alta: NRT, domicilio social y forma jurídica todavía no están
+              asignados. Se completarán aquí en cuanto el titular se dé de alta como autónomo o
               sociedad.
             </p>
           </div>

@@ -86,6 +86,16 @@ export default function RegistroPage() {
             Ya tengo cuenta
           </Link>
         </p>
+
+        {/* Quien crea una cuenta tiene que poder leer las condiciones antes,
+            y el pie de pagina solo existe dentro de la app con sesion. */}
+        <p className="mt-4 text-center text-xs text-fg-subtle">
+          Al crear la cuenta aceptas las{' '}
+          <Link to="/legal" className="underline hover:text-fg-muted">
+            condiciones de uso
+          </Link>
+          .
+        </p>
       </div>
     </main>
   )
