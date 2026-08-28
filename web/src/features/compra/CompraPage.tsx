@@ -60,6 +60,7 @@ export default function CompraPage() {
         <Route path="/lista" element={<ListaPage />} />
         <Route path="/planificar" element={<PlanificarPage />} />
         <Route path="/recetas" element={<RecetasPage />} />
+        <Route path="/recetas/nueva" element={<RecetaFormulario />} />
         <Route path="/recetas/:id" element={<RecetaDetalle />} />
         <Route path="/recetas/:id/editar" element={<RecetaFormulario />} />
         <Route path="/hogar" element={<HogarPage />} />

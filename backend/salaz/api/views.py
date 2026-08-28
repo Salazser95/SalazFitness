@@ -218,6 +218,16 @@ class RecipeViewSet(viewsets.ModelViewSet):
             return Recipe.objects.none()
         return Recipe.objects.filter(household__owner=self.request.user)
 
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # `household` es un campo normal del serializer (no read_only), asi
+        # que sin esto cualquiera podria crear una receta bajo el hogar de
+        # otro con solo adivinar su id. Mismo patron que WeeklyPlanViewSet.
+        get_object_or_404(Household, pk=household_id, owner=request.user)
+        return super().create(request, *args, **kwargs)
+
     @action(detail=True, methods=['get'])
     def cost(self, request, pk=None):
         recipe = self.get_object()
@@ -245,6 +255,16 @@ class RecipeIngredientViewSet(viewsets.ModelViewSet):
         if getattr(self, 'swagger_fake_view', False):
             return RecipeIngredient.objects.none()
         return RecipeIngredient.objects.filter(recipe__household__owner=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        recipe_id = request.data.get('recipe')
+        if not recipe_id:
+            return Response({'detail': 'recipe is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Mismo motivo que en RecipeViewSet.create: `recipe` es escribible en
+        # el serializer, sin esto se podria anadir un ingrediente a la receta
+        # de otro con solo adivinar su id.
+        get_object_or_404(Recipe, pk=recipe_id, household__owner=request.user)
+        return super().create(request, *args, **kwargs)
 
 
 class ShoppingListViewSet(viewsets.ModelViewSet):

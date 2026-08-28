@@ -1,7 +1,7 @@
-import { Link } from 'react-router-dom'
-import { ChefHat } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { ChefHat, Plus } from 'lucide-react'
 
-import { Card, EmptyState, ErrorState, SectionLabel, Skeleton, SkeletonList, Thumbnail } from '../../components/ui'
+import { Button, Card, EmptyState, ErrorState, SectionLabel, Skeleton, SkeletonList, Thumbnail } from '../../components/ui'
 import { eur, int, num } from '../../lib/format'
 import { RecetaIlustracion } from './componentes/RecetaIlustracion'
 import { useHousehold, useRecipeCost, useRecipes } from './datos'
@@ -43,20 +43,32 @@ function RecetaFila({ recipe }: { recipe: Recipe }) {
 }
 
 export default function RecetasPage() {
+  const navigate = useNavigate()
   const household = useHousehold()
   const householdId = household.data?.id ?? 0
   const recetas = useRecipes(householdId)
 
   return (
     <div className="animate-rise space-y-4">
-      <SectionLabel>Recetas</SectionLabel>
+      <div className="flex items-center justify-between">
+        <SectionLabel>Recetas</SectionLabel>
+        <Button size="sm" onClick={() => navigate('/compra/recetas/nueva')}>
+          <Plus size={16} aria-hidden="true" />
+          Nueva receta
+        </Button>
+      </div>
 
       {household.isLoading || recetas.isLoading ? (
         <SkeletonList rows={4} height="h-24" />
       ) : household.isError || recetas.isError ? (
         <ErrorState onRetry={() => recetas.refetch()} />
       ) : (recetas.data ?? []).length === 0 ? (
-        <EmptyState icon={ChefHat} title="Sin recetas todavía" description="Las recetas del hogar aparecerán aquí." />
+        <EmptyState
+          icon={ChefHat}
+          title="Sin recetas todavía"
+          description="Crea tu primera receta para poder anotarla en el diario o pedirla en la compra."
+          action={{ label: 'Nueva receta', onClick: () => navigate('/compra/recetas/nueva') }}
+        />
       ) : (
         <ul className="space-y-3">
           {(recetas.data ?? []).map((r) => (

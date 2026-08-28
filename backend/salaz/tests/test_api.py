@@ -179,6 +179,55 @@ class RecipeApiTests(SalazApiTestCase):
         for key in ('energy', 'protein', 'carbohydrates', 'fat'):
             self.assertIn(key, macros)
 
+    def test_create_recipe_for_own_household(self):
+        response = self.client.post(
+            '/api/v2/salaz/recipe/',
+            {'household': self.household.id, 'name': 'Magdalenas', 'servings': 12},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['name'], 'Magdalenas')
+
+    def test_cannot_create_recipe_for_another_users_household(self):
+        other = User.objects.create_user(username='eve', password='pw')
+        other_household = Household.objects.create(owner=other, name='Casa Eve')
+        response = self.client.post(
+            '/api/v2/salaz/recipe/',
+            {'household': other_household.id, 'name': 'Intrusa', 'servings': 1},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(Recipe.objects.filter(name='Intrusa').exists())
+
+    def test_create_recipe_requires_household(self):
+        response = self.client.post(
+            '/api/v2/salaz/recipe/', {'name': 'Sin hogar', 'servings': 1}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_recipe_ingredient_for_own_recipe(self):
+        otro_ingrediente = make_ingredient(
+            name='Flour', energy=364, protein=Decimal('10'), carbohydrates=Decimal('76'), fat=Decimal('1')
+        )
+        response = self.client.post(
+            '/api/v2/salaz/recipe-ingredient/',
+            {'recipe': self.recipe.id, 'ingredient': otro_ingrediente.id, 'amount': '50'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_cannot_create_recipe_ingredient_for_another_users_recipe(self):
+        other = User.objects.create_user(username='mallory', password='pw')
+        other_household = Household.objects.create(owner=other, name='Casa Mallory')
+        other_recipe = Recipe.objects.create(household=other_household, name='Ajena', servings=1)
+        response = self.client.post(
+            '/api/v2/salaz/recipe-ingredient/',
+            {'recipe': other_recipe.id, 'ingredient': self.ingredient.id, 'amount': '50'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(RecipeIngredient.objects.filter(recipe=other_recipe).exists())
+
 
 class ShoppingListGenerateApiTests(SalazApiTestCase):
     def setUp(self):

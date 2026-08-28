@@ -10,7 +10,9 @@ import {
   useActualizarIngredienteReceta,
   useActualizarReceta,
   useCrearIngredienteReceta,
+  useCrearReceta,
   useEliminarIngredienteReceta,
+  useHousehold,
   useRecipe,
   useRecipeIngredients,
   useSubirFotoReceta,
@@ -41,17 +43,19 @@ function ingredienteAPayload(l: IngredienteForm): NuevoIngredienteReceta {
 }
 
 /**
- * Edicion de una receta ya creada: nombre, raciones, instrucciones e
- * ingredientes. No hay pantalla de "nueva receta" (no la pidio el encargo,
- * las recetas de ejemplo ya vienen creadas).
+ * Nombre, raciones, instrucciones e ingredientes de una receta: crea una
+ * nueva (ruta /compra/recetas/nueva, sin :id) o edita una ya existente.
  */
 export default function RecetaFormulario() {
   const navigate = useNavigate()
   const { id: idParam } = useParams<{ id: string }>()
+  const esNueva = !idParam
   const id = Number(idParam) || 0
 
   const receta = useRecipe(id)
   const ingredientesExistentes = useRecipeIngredients(id)
+  const household = useHousehold()
+  const crearReceta = useCrearReceta()
   const actualizar = useActualizarReceta()
   const crearIngrediente = useCrearIngredienteReceta()
   const actualizarIngrediente = useActualizarIngredienteReceta()
@@ -62,11 +66,14 @@ export default function RecetaFormulario() {
   const [name, setName] = useState('')
   const [servings, setServings] = useState('1')
   const [instructions, setInstructions] = useState('')
-  const [ingredientes, setIngredientes] = useState<IngredienteForm[]>([])
+  const [ingredientes, setIngredientes] = useState<IngredienteForm[]>(() =>
+    esNueva ? [nuevoIngrediente()] : [],
+  )
   const [eliminados, setEliminados] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [listo, setListo] = useState(false)
-  const cargadoRef = useRef(false)
+  // Una receta nueva no tiene nada que cargar del servidor: empieza lista.
+  const [listo, setListo] = useState(esNueva)
+  const cargadoRef = useRef(esNueva)
 
   // Precarga el formulario una sola vez, resolviendo el nombre de cada
   // ingrediente contra wger (RecipeIngredient solo guarda el id, no el
@@ -145,13 +152,18 @@ export default function RecetaFormulario() {
   }
 
   const guardando =
-    actualizar.isPending || crearIngrediente.isPending || actualizarIngrediente.isPending || eliminarIngrediente.isPending
+    crearReceta.isPending ||
+    actualizar.isPending ||
+    crearIngrediente.isPending ||
+    actualizarIngrediente.isPending ||
+    eliminarIngrediente.isPending
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
 
-    if (!receta.data) return
+    if (!esNueva && !receta.data) return
+    if (esNueva && !household.data) return setError('No se ha podido determinar el hogar. Prueba otra vez.')
     if (!name.trim()) return setError('Falta el nombre de la receta.')
     if (ingredientes.some((l) => l.ingredientId === null)) {
       return setError('Hay ingredientes sin elegir de la lista (no se admite texto libre en recetas).')
@@ -160,38 +172,49 @@ export default function RecetaFormulario() {
       return setError('Hay ingredientes sin cantidad.')
     }
 
-    await actualizar.mutateAsync({
-      id,
-      cambios: {
-        name: name.trim(),
-        servings: Math.max(1, Number(servings) || 1),
-        instructions: instructions.trim(),
-      },
-    })
+    const datosBase = {
+      name: name.trim(),
+      servings: Math.max(1, Number(servings) || 1),
+      instructions: instructions.trim(),
+    }
 
-    await Promise.all([
-      ...ingredientes.map((l) =>
-        l.id
-          ? actualizarIngrediente.mutateAsync({ id: l.id, recipe: id, cambios: ingredienteAPayload(l) })
-          : crearIngrediente.mutateAsync({ recipe: id, ingrediente: ingredienteAPayload(l) }),
-      ),
-      ...eliminados.map((ingredienteId) => eliminarIngrediente.mutateAsync({ id: ingredienteId, recipe: id })),
-    ])
+    let recipeId = id
+    if (esNueva) {
+      const receta = await crearReceta.mutateAsync({ household: household.data!.id, ...datosBase })
+      recipeId = receta.id
+      // Todas las lineas son nuevas: no hay `id` que actualizar ni nada que borrar.
+      await Promise.all(
+        ingredientes.map((l) =>
+          crearIngrediente.mutateAsync({ recipe: recipeId, ingrediente: ingredienteAPayload(l) }),
+        ),
+      )
+    } else {
+      await actualizar.mutateAsync({ id, cambios: datosBase })
+      await Promise.all([
+        ...ingredientes.map((l) =>
+          l.id
+            ? actualizarIngrediente.mutateAsync({ id: l.id, recipe: id, cambios: ingredienteAPayload(l) })
+            : crearIngrediente.mutateAsync({ recipe: id, ingrediente: ingredienteAPayload(l) }),
+        ),
+        ...eliminados.map((ingredienteId) => eliminarIngrediente.mutateAsync({ id: ingredienteId, recipe: id })),
+      ])
+    }
 
-    navigate(`/compra/recetas/${id}`)
+    navigate(`/compra/recetas/${recipeId}`)
   }
 
-  if (receta.isLoading || ingredientesExistentes.isLoading || !listo) {
+  if (!esNueva && (receta.isLoading || ingredientesExistentes.isLoading || !listo)) {
     return <SkeletonList rows={4} height="h-14" />
   }
-  if (receta.isError || !receta.data) {
+  if (!esNueva && (receta.isError || !receta.data)) {
     return <ErrorState onRetry={() => receta.refetch()} />
   }
 
   return (
     <div className="animate-rise">
-      <PageTitle>Editar receta</PageTitle>
+      <PageTitle>{esNueva ? 'Nueva receta' : 'Editar receta'}</PageTitle>
       <form onSubmit={onSubmit} className="space-y-5">
+        {esNueva ? null : (
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
             <SectionLabel>Foto</SectionLabel>
@@ -203,7 +226,7 @@ export default function RecetaFormulario() {
               disabled={subirFoto.isPending}
             >
               <ImagePlus size={16} aria-hidden="true" />
-              {subirFoto.isPending ? 'Subiendo...' : receta.data.image ? 'Cambiar foto' : 'Subir foto'}
+              {subirFoto.isPending ? 'Subiendo...' : receta.data!.image ? 'Cambiar foto' : 'Subir foto'}
             </Button>
             <input
               ref={inputFotoRef}
@@ -214,8 +237,8 @@ export default function RecetaFormulario() {
               aria-label="Elegir foto de la receta"
             />
           </div>
-          {receta.data.image ? (
-            <Thumbnail src={receta.data.image} alt={receta.data.name} className="aspect-video" />
+          {receta.data!.image ? (
+            <Thumbnail src={receta.data!.image} alt={receta.data!.name} className="aspect-video" />
           ) : (
             <RecetaIlustracion className="aspect-video" iconSize={40} />
           )}
@@ -223,6 +246,7 @@ export default function RecetaFormulario() {
             <p className="text-sm text-danger">No se ha podido subir la foto. Inténtalo de nuevo.</p>
           ) : null}
         </Card>
+        )}
 
         <Card className="space-y-4">
           <SectionLabel>Datos</SectionLabel>

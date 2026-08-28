@@ -698,6 +698,24 @@ export function useRecipe(id: number) {
   return useQuery({ queryKey: claves.recipe(id), queryFn: () => cargarReceta(id), enabled: id > 0 })
 }
 
+export type NuevaReceta = Omit<Recipe, 'id' | 'image'>
+
+/** Crea una receta nueva (sin ingredientes todavia: se anaden aparte con useCrearIngredienteReceta). */
+export function useCrearReceta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NuevaReceta) => {
+      if (BACKEND_LISTO) return api.post<Recipe>(`${BASE}/recipe/`, input)
+      const receta: Recipe = { id: siguienteId(), image: null, ...input }
+      almacen.recipes.push(receta)
+      return retraso(receta)
+    },
+    onSuccess: (receta) => {
+      qc.invalidateQueries({ queryKey: claves.recipes(receta.household) })
+    },
+  })
+}
+
 /** Cambia nombre, raciones o instrucciones de una receta ya creada. */
 export function useActualizarReceta() {
   const qc = useQueryClient()

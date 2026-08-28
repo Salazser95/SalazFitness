@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Clock, ScanBarcode, Search, Star, X } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ChefHat, Clock, ScanBarcode, Search, Star, X } from 'lucide-react'
 
 import { Button, Card, EmptyState, ErrorState, Field, SkeletonList } from '../../components/ui'
+import { AnotarRecetaModal } from '../compra/componentes/AnotarRecetaModal'
+import { useHousehold, useRecipes } from '../compra/datos'
+import type { Recipe } from '../compra/tipos'
 import {
   MEAL_NAMES,
   macrosFor,
@@ -25,7 +28,30 @@ import type { AlimentoGuardado } from './local'
 import { int, num, today } from '../../lib/format'
 
 type Alimento = Ingredient | AlimentoGuardado
-type Pestana = 'buscar' | 'recientes' | 'favoritos'
+type Pestana = 'recetas' | 'buscar' | 'recientes' | 'favoritos'
+
+// ----------------------------------------------------------------- recetas
+
+function ListaRecetas({ recetas, onElegir }: { recetas: Recipe[]; onElegir: (r: Recipe) => void }) {
+  return (
+    <ul className="space-y-2">
+      {recetas.map((r) => (
+        <li key={r.id}>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 rounded-[14px] border border-border bg-surface-2 px-4 py-3 text-left transition-colors duration-150 hover:bg-surface-3"
+            onClick={() => onElegir(r)}
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-sm text-fg">{r.name}</span>
+              <span className="block truncate text-xs text-fg-subtle">{r.servings} raciones</span>
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 // ------------------------------------------------------- escaner de codigos
 
@@ -280,11 +306,15 @@ function HojaAlimento({
 // -------------------------------------------------------------------- pagina
 
 export default function BuscarPage() {
+  const navigate = useNavigate()
   const [params] = useSearchParams()
   const fecha = params.get('fecha') ?? today()
   const mealParam = params.get('meal')
 
-  const [pestana, setPestana] = useState<Pestana>('buscar')
+  // Por defecto se abre en Recetas: para lo que ya se cocina y se guarda
+  // como receta propia, es mas rapido anotar el plato entero que buscar
+  // cada alimento suelto en el catalogo de 177.302 de wger.
+  const [pestana, setPestana] = useState<Pestana>('recetas')
   const [texto, setTexto] = useState('')
   const [debounced, setDebounced] = useState('')
   const [escanerAbierto, setEscanerAbierto] = useState(false)
@@ -293,6 +323,7 @@ export default function BuscarPage() {
   const [seleccionado, setSeleccionado] = useState<Alimento | null>(null)
   const [gramos, setGramos] = useState(100)
   const [mealIdManual, setMealIdManual] = useState<string | null>(null)
+  const [recetaSeleccionada, setRecetaSeleccionada] = useState<Recipe | null>(null)
 
   const [favoritos, setFavoritos] = useState<AlimentoGuardado[]>(() => leerFavoritos())
   const [recientes, setRecientes] = useState<AlimentoGuardado[]>(() => leerRecientes())
@@ -312,10 +343,16 @@ export default function BuscarPage() {
   const comidas = mapaComidas(planInfo.data)
   const agregar = useAgregarAlimento(plan.data?.id, fecha)
 
+  const household = useHousehold()
+  const recetas = useRecipes(household.data?.id ?? 0)
+
   const mealOptions = useMemo(
     () => MEAL_NAMES.flatMap((n) => { const m = comidas.get(n); return m ? [{ id: m.id, nombre: n }] : [] }),
     [comidas],
   )
+  // Nombre de la comida que se estaba editando al llegar aqui (?meal=), para
+  // preseleccionarla en el modal de anotar receta.
+  const comidaInicial = mealOptions.find((m) => m.id === mealParam)?.nombre
   const mealId = mealIdManual ?? mealParam ?? mealOptions[0]?.id ?? ''
 
   const favoritosIds = useMemo(() => new Set(favoritos.map((f) => f.id)), [favoritos])
@@ -360,6 +397,7 @@ export default function BuscarPage() {
       <div className="flex gap-1 rounded-[14px] border border-border bg-surface p-1">
         {(
           [
+            { id: 'recetas', label: 'Recetas' },
             { id: 'buscar', label: 'Buscar' },
             { id: 'recientes', label: 'Recientes' },
             { id: 'favoritos', label: 'Favoritos' },
@@ -378,7 +416,22 @@ export default function BuscarPage() {
         ))}
       </div>
 
-      {pestana === 'buscar' ? (
+      {pestana === 'recetas' ? (
+        household.isLoading || recetas.isLoading ? (
+          <SkeletonList rows={4} height="h-16" />
+        ) : household.isError || recetas.isError ? (
+          <ErrorState onRetry={() => recetas.refetch()} />
+        ) : (recetas.data ?? []).length === 0 ? (
+          <EmptyState
+            icon={ChefHat}
+            title="Sin recetas todavía"
+            description="Crea tus recetas en Compra para anotarlas aquí de una vez, sin buscar cada alimento suelto."
+            action={{ label: 'Nueva receta', onClick: () => navigate('/compra/recetas/nueva') }}
+          />
+        ) : (
+          <ListaRecetas recetas={recetas.data ?? []} onElegir={setRecetaSeleccionada} />
+        )
+      ) : pestana === 'buscar' ? (
         <>
           <div className="relative">
             <Search
@@ -457,6 +510,19 @@ export default function BuscarPage() {
 
       {escanerAbierto ? (
         <EscanerCodigoBarras onDetectado={alDetectarCodigo} onCerrar={() => setEscanerAbierto(false)} />
+      ) : null}
+
+      {recetaSeleccionada ? (
+        <AnotarRecetaModal
+          recipeId={recetaSeleccionada.id}
+          open
+          fecha={fecha}
+          comidaInicial={comidaInicial}
+          onClose={() => {
+            setRecetaSeleccionada(null)
+            navigate(-1)
+          }}
+        />
       ) : null}
     </div>
   )

@@ -31,12 +31,15 @@ export function AnotarRecetaModal({
   open,
   onClose,
   fecha = today(),
+  comidaInicial = 'Comida',
 }: {
   recipeId: number
   open: boolean
   onClose: () => void
   /** Fecha del diario en la que se anota (YYYY-MM-DD). Por defecto, hoy. */
   fecha?: string
+  /** Comida preseleccionada (p.ej. la que se estaba editando al abrir el buscador). */
+  comidaInicial?: MealName
 }) {
   const receta = useRecipe(recipeId)
   const ingredientes = useRecipeIngredients(recipeId)
@@ -45,7 +48,7 @@ export function AnotarRecetaModal({
   useAsegurarComidas(planInfo.data)
   const anotar = useAnotarRecetaEnDiario(plan.data?.id, fecha)
 
-  const [comida, setComida] = useState<MealName>('Comida')
+  const [comida, setComida] = useState<MealName>(comidaInicial)
   const [raciones, setRaciones] = useState(1)
   const [hecho, setHecho] = useState(false)
 
