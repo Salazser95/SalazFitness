@@ -19,6 +19,7 @@ from salaz.api.serializers import (
     HouseholdMemberSerializer,
     HouseholdSerializer,
     IngredientPriceSerializer,
+    PantryItemSerializer,
     PurchaseItemSerializer,
     PurchaseSerializer,
     RecentIngredientSerializer,
@@ -40,6 +41,7 @@ from salaz.models import (
     Household,
     HouseholdMember,
     IngredientPrice,
+    PantryItem,
     Purchase,
     PurchaseItem,
     RecentIngredient,
@@ -302,6 +304,75 @@ class IngredientPriceViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
 
+class PantryItemViewSet(viewsets.ModelViewSet):
+    """
+    Stock de despensa de un hogar: cuanto queda de cada producto. Dueno o
+    miembro vinculado puede ver, anadir a mano, corregir la cantidad (segun
+    se va gastando) o quitar una linea -- es un dato compartido del hogar,
+    igual que las recetas o las listas de la compra, no gestion.
+
+    Ademas de la gestion manual, PurchaseItemViewSet suma o resta aqui en
+    automatico cuando se marca/desmarca o se borra una linea de compra ya
+    marcada como comprada (ver _ajustar_despensa mas abajo).
+    """
+
+    serializer_class = PantryItemSerializer
+    is_private = True
+    filterset_fields = ('household',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return PantryItem.objects.none()
+        return PantryItem.objects.filter(_acceso_hogar(self.request.user)).distinct()
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Mismo motivo que en el resto del modulo: `household` es escribible,
+        # sin esto se podria anadir una linea a la despensa de otro con solo
+        # adivinar su id. Dueno O miembro vinculado.
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
+        return super().create(request, *args, **kwargs)
+
+
+def _buscar_linea_despensa(household, purchase_item):
+    """La fila de PantryItem que representa el mismo producto que esta
+    linea de compra: mismo ingrediente (o mismo nombre si no hay
+    ingrediente) y misma unidad. Cantidades en unidades distintas del mismo
+    producto (1 kg de arroz frente a 500 g) no se mezclan en una sola fila:
+    seria falsear el stock en vez de sumarlo."""
+    qs = PantryItem.objects.filter(household=household, unit=purchase_item.unit)
+    if purchase_item.ingredient_id:
+        qs = qs.filter(ingredient_id=purchase_item.ingredient_id)
+    else:
+        qs = qs.filter(ingredient__isnull=True, name=purchase_item.name)
+    return qs.first()
+
+
+def _ajustar_despensa(purchase_item, *, sumar: bool):
+    """
+    Suma (al marcar una linea de compra como comprada) o resta (al
+    desmarcarla, o al borrarla si seguia marcada) su cantidad al stock de
+    despensa del hogar, sin bajar nunca de cero.
+    """
+    household = purchase_item.purchase.household
+    despensa = _buscar_linea_despensa(household, purchase_item)
+    if despensa is None:
+        if not sumar:
+            return
+        despensa = PantryItem(
+            household=household,
+            ingredient_id=purchase_item.ingredient_id,
+            name=purchase_item.name,
+            unit=purchase_item.unit,
+            amount=Decimal('0'),
+        )
+    delta = purchase_item.amount if sumar else -purchase_item.amount
+    despensa.amount = max(Decimal('0'), despensa.amount + delta)
+    despensa.save()
+
+
 class PurchaseViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseSerializer
     is_private = True
@@ -365,6 +436,25 @@ class PurchaseItemViewSet(viewsets.ModelViewSet):
         # Dueno O miembro vinculado.
         _accesible_o_404(Purchase.objects.all(), purchase_id, request.user)
         return super().create(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        # `serializer.instance` es la fila tal cual estaba en la base de
+        # datos hasta este punto: ModelSerializer.save() la muta en el
+        # mismo objeto Python, asi que hay que leer `purchased` ANTES de
+        # guardar para saber si de verdad cambio (y no ajustar la despensa
+        # dos veces si el cliente manda el mismo valor que ya tenia).
+        estaba_comprado = serializer.instance.purchased
+        serializer.save()
+        si_ahora = serializer.instance.purchased
+        if si_ahora != estaba_comprado:
+            _ajustar_despensa(serializer.instance, sumar=si_ahora)
+
+    def perform_destroy(self, instance):
+        # Si la linea ya estaba marcada como comprada, borrarla sin
+        # devolver su cantidad a la despensa dejaria stock fantasma.
+        if instance.purchased:
+            _ajustar_despensa(instance, sumar=False)
+        instance.delete()
 
 
 class RecipeViewSet(viewsets.ModelViewSet):

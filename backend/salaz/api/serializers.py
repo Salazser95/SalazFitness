@@ -6,6 +6,7 @@ from salaz.models import (
     Household,
     HouseholdMember,
     IngredientPrice,
+    PantryItem,
     Purchase,
     PurchaseItem,
     RecentIngredient,
@@ -114,6 +115,19 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             'is_shared',
             'member',
         ]
+
+    def validate(self, attrs):
+        ingredient = attrs.get('ingredient', getattr(self.instance, 'ingredient', None))
+        name = attrs.get('name', getattr(self.instance, 'name', ''))
+        if not ingredient and not name:
+            raise serializers.ValidationError('Either ingredient or name must be set.')
+        return attrs
+
+
+class PantryItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PantryItem
+        fields = ['id', 'household', 'ingredient', 'name', 'unit', 'amount']
 
     def validate(self, attrs):
         ingredient = attrs.get('ingredient', getattr(self.instance, 'ingredient', None))

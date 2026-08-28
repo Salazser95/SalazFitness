@@ -4,6 +4,7 @@ from salaz.models.favorite_ingredient import FavoriteIngredient
 from salaz.models.household import Household
 from salaz.models.household_member import HouseholdMember
 from salaz.models.ingredient_price import IngredientPrice
+from salaz.models.pantry_item import PantryItem
 from salaz.models.purchase import Purchase
 from salaz.models.purchase_item import PurchaseItem
 from salaz.models.recent_ingredient import RecentIngredient
@@ -25,6 +26,7 @@ __all__ = [
     'Household',
     'HouseholdMember',
     'IngredientPrice',
+    'PantryItem',
     'Purchase',
     'PurchaseItem',
     'RecentIngredient',

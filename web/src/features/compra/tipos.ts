@@ -166,6 +166,21 @@ export type ShoppingListItem = {
   note: string
 }
 
+/**
+ * Cuanto queda en la despensa de un hogar de un producto dado. Se rellena a
+ * mano (ver DespensaPage) y en automatico al marcar/desmarcar una linea de
+ * compra como comprada (ver CompraDetalle.tsx / el campo `purchased` de
+ * PurchaseItem).
+ */
+export type PantryItem = {
+  id: number
+  household: number
+  ingredient: number | null
+  name: string
+  unit: string
+  amount: number
+}
+
 export type IngredientPrice = {
   id: number
   ingredient: number

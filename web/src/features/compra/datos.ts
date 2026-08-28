@@ -27,6 +27,7 @@ import type {
   HouseholdSummary,
   IngredientPrice,
   IngredientWger,
+  PantryItem,
   Purchase,
   PurchaseBreakdown,
   PurchaseItem,
@@ -174,6 +175,9 @@ const almacen = {
     { id: 4, shopping_list: 1, ingredient: 9005, name: 'Huevos', amount: 1, unit: 'docena', estimated_price: '3.20', purchased: false, supermarket: null },
     { id: 5, shopping_list: 1, ingredient: null, name: 'Papel de cocina', amount: 1, unit: 'ud', estimated_price: '2.50', purchased: false, supermarket: null },
   ] as ShoppingListItem[],
+  // Despensa vacia por defecto: se rellena comprando (o a mano), no trae
+  // ejemplos precargados como el resto del almacen.
+  pantryItems: [] as PantryItem[],
 }
 
 async function retraso<T>(valor: T): Promise<T> {
@@ -199,6 +203,7 @@ const claves = {
   costeMedioComida: (householdId: number) => ['compra', 'coste-medio-comida', householdId] as const,
   shoppingList: (householdId: number) => ['compra', 'shopping-list', householdId] as const,
   shoppingListItems: (listId: number) => ['compra', 'shopping-list-items', listId] as const,
+  pantryItems: (householdId: number) => ['compra', 'pantry-items', householdId] as const,
 }
 
 // Prefijos usados para invalidar en bloque queries derivadas que no dependen
@@ -209,6 +214,7 @@ const prefijos = {
   purchasesTotal: ['compra', 'purchases-total'] as const,
   breakdown: ['compra', 'breakdown'] as const,
   costeMedioComida: ['compra', 'coste-medio-comida'] as const,
+  pantryItems: ['compra', 'pantry-items'] as const,
 }
 
 // ================================================================
@@ -595,6 +601,10 @@ export function useActualizarLineaCompra() {
       qc.invalidateQueries({ queryKey: prefijos.summary })
       qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
       qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+      // Marcar/desmarcar como comprada puede haber ajustado la despensa en
+      // el backend (ver PurchaseItemViewSet.perform_update): sin saber aqui
+      // el household, se invalida el prefijo entero en vez de una clave sola.
+      qc.invalidateQueries({ queryKey: prefijos.pantryItems })
     },
   })
 }
@@ -618,7 +628,75 @@ export function useEliminarLineaCompra() {
       qc.invalidateQueries({ queryKey: prefijos.summary })
       qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
       qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+      // Borrar una linea que seguia marcada como comprada tambien devuelve
+      // su cantidad a la despensa (ver PurchaseItemViewSet.perform_destroy).
+      qc.invalidateQueries({ queryKey: prefijos.pantryItems })
     },
+  })
+}
+
+// ================================================================
+// Despensa
+// ================================================================
+
+async function cargarDespensa(householdId: number): Promise<PantryItem[]> {
+  if (BACKEND_LISTO) return fetchAll<PantryItem>(`${BASE}/pantry-item/?household=${householdId}`)
+  return retraso(almacen.pantryItems.filter((i) => i.household === householdId))
+}
+
+export function usePantryItems(householdId: number) {
+  return useQuery({
+    queryKey: claves.pantryItems(householdId),
+    queryFn: () => cargarDespensa(householdId),
+    enabled: householdId > 0,
+  })
+}
+
+export type NuevaLineaDespensa = { household: number; ingredient?: number | null; name: string; unit: string; amount: number }
+
+/** Anade una linea a mano a la despensa. */
+export function useCrearPantryItem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NuevaLineaDespensa) => {
+      if (BACKEND_LISTO) return api.post<PantryItem>(`${BASE}/pantry-item/`, input)
+      const item: PantryItem = { id: siguienteId(), ingredient: null, ...input }
+      almacen.pantryItems.push(item)
+      return retraso(item)
+    },
+    onSuccess: (item) => qc.invalidateQueries({ queryKey: claves.pantryItems(item.household) }),
+  })
+}
+
+/** Corrige a mano la cantidad de una linea de despensa (segun se va gastando). */
+export function useActualizarPantryItem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number; amount: number }) => {
+      if (BACKEND_LISTO) return api.patch<PantryItem>(`${BASE}/pantry-item/${input.id}/`, { amount: input.amount })
+      const item = almacen.pantryItems.find((i) => i.id === input.id)
+      if (!item) throw new Error('Linea de despensa no encontrada')
+      item.amount = input.amount
+      return retraso(item)
+    },
+    onSuccess: (item) => qc.invalidateQueries({ queryKey: claves.pantryItems(item.household) }),
+  })
+}
+
+/** Quita una linea de despensa. */
+export function useEliminarPantryItem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/pantry-item/${input.id}/`)
+        return input
+      }
+      const idx = almacen.pantryItems.findIndex((i) => i.id === input.id)
+      if (idx >= 0) almacen.pantryItems.splice(idx, 1)
+      return retraso(input)
+    },
+    onSuccess: ({ household }) => qc.invalidateQueries({ queryKey: claves.pantryItems(household) }),
   })
 }
 
