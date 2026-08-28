@@ -542,6 +542,7 @@ export type NuevoDia = {
   type?: DayType
   is_rest: boolean
   order: number
+  description?: string
 }
 
 export function useCrearDia(routineId: number) {
