@@ -147,6 +147,15 @@ class HouseholdMemberViewSet(viewsets.ModelViewSet):
             return HouseholdMember.objects.none()
         return HouseholdMember.objects.filter(household__owner=self.request.user)
 
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # `household` es escribible en el serializer: sin esto se podria
+        # anadir un miembro al hogar de otro con solo adivinar su id.
+        get_object_or_404(Household, pk=household_id, owner=request.user)
+        return super().create(request, *args, **kwargs)
+
 
 class IngredientPriceViewSet(viewsets.ModelViewSet):
     serializer_class = IngredientPriceSerializer
@@ -158,6 +167,15 @@ class IngredientPriceViewSet(viewsets.ModelViewSet):
             return IngredientPrice.objects.none()
         return IngredientPrice.objects.filter(household__owner=self.request.user)
 
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Mismo motivo: `household` es escribible, sin esto se podria anadir
+        # un precio al hogar de otro con solo adivinar su id.
+        get_object_or_404(Household, pk=household_id, owner=request.user)
+        return super().create(request, *args, **kwargs)
+
 
 class PurchaseViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseSerializer
@@ -168,6 +186,15 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         if getattr(self, 'swagger_fake_view', False):
             return Purchase.objects.none()
         return Purchase.objects.filter(household__owner=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Mismo motivo: `household` es escribible, sin esto se podria crear
+        # una compra bajo el hogar de otro con solo adivinar su id.
+        get_object_or_404(Household, pk=household_id, owner=request.user)
+        return super().create(request, *args, **kwargs)
 
     @action(detail=True, methods=['get'])
     def breakdown(self, request, pk=None):
@@ -202,6 +229,15 @@ class PurchaseItemViewSet(viewsets.ModelViewSet):
         if getattr(self, 'swagger_fake_view', False):
             return PurchaseItem.objects.none()
         return PurchaseItem.objects.filter(purchase__household__owner=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        purchase_id = request.data.get('purchase')
+        if not purchase_id:
+            return Response({'detail': 'purchase is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # `purchase` es escribible en el serializer: sin esto se podria
+        # anadir una linea a la compra de otro con solo adivinar su id.
+        get_object_or_404(Purchase, pk=purchase_id, household__owner=request.user)
+        return super().create(request, *args, **kwargs)
 
 
 class RecipeViewSet(viewsets.ModelViewSet):

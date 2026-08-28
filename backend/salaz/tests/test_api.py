@@ -123,6 +123,16 @@ class HouseholdMemberApiTests(SalazApiTestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_cannot_create_member_for_another_users_household(self):
+        other = User.objects.create_user(username='eve', password='pw')
+        other_household = Household.objects.create(owner=other, name='Casa Eve')
+        response = self.client.post(
+            '/api/v2/salaz/household-member/',
+            {'household': other_household.id, 'name': 'Intrusa'},
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(HouseholdMember.objects.filter(name='Intrusa').exists())
+
 
 class PurchaseApiTests(SalazApiTestCase):
     def setUp(self):
@@ -157,6 +167,108 @@ class PurchaseApiTests(SalazApiTestCase):
         self.client.force_authenticate(user=other)
         response = self.client.get(f'/api/v2/salaz/purchase/{self.purchase.id}/breakdown/')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_purchase_for_own_household(self):
+        response = self.client.post(
+            '/api/v2/salaz/purchase/',
+            {'household': self.household.id, 'date': '2026-01-01', 'description': 'Compra nueva', 'covers_days': 7},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_cannot_create_purchase_for_another_users_household(self):
+        other = User.objects.create_user(username='eve', password='pw')
+        other_household = Household.objects.create(owner=other, name='Casa Eve')
+        response = self.client.post(
+            '/api/v2/salaz/purchase/',
+            {'household': other_household.id, 'date': '2026-01-01', 'description': 'Intrusa', 'covers_days': 7},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(Purchase.objects.filter(household=other_household).exists())
+
+    def test_create_purchase_requires_household(self):
+        response = self.client.post(
+            '/api/v2/salaz/purchase/', {'date': '2026-01-01', 'description': 'Sin hogar', 'covers_days': 7}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_purchase_item_for_own_purchase(self):
+        response = self.client.post(
+            '/api/v2/salaz/purchase-item/',
+            {
+                'purchase': self.purchase.id, 'name': 'Nuevo', 'amount': '1',
+                'unit': 'unit', 'price': '5.00', 'is_shared': True,
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_cannot_create_purchase_item_for_another_users_purchase(self):
+        other = User.objects.create_user(username='mallory', password='pw')
+        other_household = Household.objects.create(owner=other, name='Casa Mallory')
+        other_purchase = Purchase.objects.create(
+            household=other_household, date=datetime.date.today(), covers_days=7,
+        )
+        response = self.client.post(
+            '/api/v2/salaz/purchase-item/',
+            {
+                'purchase': other_purchase.id, 'name': 'Intrusa', 'amount': '1',
+                'unit': 'unit', 'price': '5.00', 'is_shared': True,
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(PurchaseItem.objects.filter(purchase=other_purchase).exists())
+
+    def test_create_purchase_item_requires_purchase(self):
+        response = self.client.post(
+            '/api/v2/salaz/purchase-item/',
+            {'name': 'Sin compra', 'amount': '1', 'unit': 'unit', 'price': '5.00'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class IngredientPriceApiTests(SalazApiTestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='heidi', password='pw')
+        self.household = Household.objects.create(owner=self.user, name='Casa Heidi')
+        self.ingredient = make_ingredient(name='Tomato')
+        self.client.force_authenticate(user=self.user)
+
+    def test_create_price_for_own_household(self):
+        response = self.client.post(
+            '/api/v2/salaz/ingredient-price/',
+            {
+                'ingredient': self.ingredient.id, 'household': self.household.id,
+                'price': '2.50', 'amount': '1', 'unit': 'kg', 'date': '2026-01-01',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_cannot_create_price_for_another_users_household(self):
+        other = User.objects.create_user(username='ivan', password='pw')
+        other_household = Household.objects.create(owner=other, name='Casa Ivan')
+        response = self.client.post(
+            '/api/v2/salaz/ingredient-price/',
+            {
+                'ingredient': self.ingredient.id, 'household': other_household.id,
+                'price': '2.50', 'amount': '1', 'unit': 'kg', 'date': '2026-01-01',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(IngredientPrice.objects.filter(household=other_household).exists())
+
+    def test_create_price_requires_household(self):
+        response = self.client.post(
+            '/api/v2/salaz/ingredient-price/',
+            {'ingredient': self.ingredient.id, 'price': '2.50', 'amount': '1', 'unit': 'kg', 'date': '2026-01-01'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class RecipeApiTests(SalazApiTestCase):
