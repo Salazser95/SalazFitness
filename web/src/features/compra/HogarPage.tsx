@@ -108,7 +108,7 @@ export default function HogarPage() {
         title="Eliminar miembro del hogar"
         description={
           aBorrar
-            ? `Se eliminara a ${aBorrar.name} y su reparto de gasto (${num(aBorrar.consumption_share)}%). Esta accion no se puede deshacer.`
+            ? `Se eliminará a ${aBorrar.name} y su reparto de gasto (${num(aBorrar.consumption_share)}%). Esta acción no se puede deshacer.`
             : undefined
         }
       />

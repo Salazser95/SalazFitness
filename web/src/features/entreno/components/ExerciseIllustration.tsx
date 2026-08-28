@@ -189,7 +189,7 @@ export function ExerciseIllustration({ category, className = '' }: Props) {
   return (
     <div
       role="img"
-      aria-label={nombre ? `Ilustracion de categoria: ${nombre}` : 'Ilustracion decorativa de ejercicio'}
+      aria-label={nombre ? `Ilustración de categoría: ${nombre}` : 'Ilustración decorativa de ejercicio'}
       className={`flex items-center justify-center rounded-[20px] border border-border bg-surface-2 ${className}`}
     >
       <svg viewBox="0 0 200 200" className="h-full max-h-[220px] w-auto" aria-hidden="true">

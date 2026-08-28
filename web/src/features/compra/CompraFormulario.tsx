@@ -136,10 +136,10 @@ export default function CompraFormulario() {
 
     if (!household.data) return
     if (!supermercado.trim()) return setError('Falta el supermercado.')
-    if (lineas.some((l) => !l.name.trim())) return setError('Hay lineas sin producto.')
-    if (lineas.some((l) => eurosACentimos(l.price) <= 0)) return setError('Hay lineas sin precio.')
+    if (lineas.some((l) => !l.name.trim())) return setError('Hay líneas sin producto.')
+    if (lineas.some((l) => eurosACentimos(l.price) <= 0)) return setError('Hay líneas sin precio.')
     if (lineas.some((l) => !l.is_shared && l.member === null)) {
-      return setError('Hay lineas individuales sin persona asignada.')
+      return setError('Hay líneas individuales sin persona asignada.')
     }
 
     const cabecera = {
@@ -189,14 +189,14 @@ export default function CompraFormulario() {
           <div className="grid grid-cols-2 gap-3">
             <Field label="Fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required />
             <Field
-              label="Dias que cubre"
+              label="Días que cubre"
               inputMode="numeric"
               value={coversDays}
               onChange={(e) => setCoversDays(e.target.value)}
               required
             />
           </div>
-          <Field label="Descripcion" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} required />
+          <Field label="Descripción" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} required />
           <Field
             label="Supermercado"
             value={supermercado}
@@ -208,21 +208,21 @@ export default function CompraFormulario() {
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <SectionLabel>Lineas</SectionLabel>
+            <SectionLabel>Líneas</SectionLabel>
             <Button type="button" variant="secondary" size="sm" onClick={() => setLineas((p) => [...p, nuevaLinea()])}>
               <Plus size={16} aria-hidden="true" />
-              Anadir linea
+              Añadir línea
             </Button>
           </div>
 
           {lineas.map((linea, i) => (
             <Card key={linea.tempId} className="space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-fg-muted">Linea {i + 1}</p>
+                <p className="text-sm font-medium text-fg-muted">Línea {i + 1}</p>
                 {lineas.length > 1 ? (
                   <button
                     type="button"
-                    aria-label={`Quitar linea ${i + 1}`}
+                    aria-label={`Quitar línea ${i + 1}`}
                     onClick={() => quitarLinea(linea.tempId)}
                     className="flex h-9 w-9 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
                   >

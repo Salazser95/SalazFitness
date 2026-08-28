@@ -136,7 +136,7 @@ export default function RecetaDetalle() {
         <p className="font-display text-2xl text-fg">{receta.data.name}</p>
         <p className="mt-1 text-sm text-fg-muted">{receta.data.servings} raciones</p>
         <p className="tnum mt-3 text-sm text-fg">
-          {int(coste.data.macros_per_serving.energy)} kcal · {num(coste.data.macros_per_serving.protein)} g proteina ·{' '}
+          {int(coste.data.macros_per_serving.energy)} kcal · {num(coste.data.macros_per_serving.protein)} g proteína ·{' '}
           {num(coste.data.macros_per_serving.carbohydrates)} g hidratos · {num(coste.data.macros_per_serving.fat)} g grasa ·{' '}
           {eur(coste.data.cost_per_serving)}/persona
         </p>
@@ -146,7 +146,7 @@ export default function RecetaDetalle() {
         <SectionLabel>Ingredientes</SectionLabel>
         <Card>
           {lista.length === 0 ? (
-            <p className="py-4 text-center text-sm text-fg-muted">Esta receta no tiene ingredientes todavia.</p>
+            <p className="py-4 text-center text-sm text-fg-muted">Esta receta no tiene ingredientes todavía.</p>
           ) : (
             <ul>
               {lista.map((ri, i) => (
@@ -156,8 +156,8 @@ export default function RecetaDetalle() {
           )}
         </Card>
         <p className="mt-2 text-xs text-fg-subtle">
-          Coste de cada ingrediente repartido a partir del coste total real de la receta, en proporcion a su peso.
-          Para anadir, editar o quitar ingredientes, usa "Editar" arriba.
+          Coste de cada ingrediente repartido a partir del coste total real de la receta, en proporción a su peso.
+          Para añadir, editar o quitar ingredientes, usa "Editar" arriba.
         </p>
       </div>
 
@@ -167,7 +167,7 @@ export default function RecetaDetalle() {
           <p className="tnum mt-1 font-display text-3xl text-violet">{eur(coste.data.total_cost)}</p>
         </Card>
         <Card>
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">Coste por racion</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">Coste por ración</p>
           <p className="tnum mt-1 font-display text-3xl text-violet">{eur(coste.data.cost_per_serving)}</p>
         </Card>
       </div>
@@ -184,7 +184,7 @@ export default function RecetaDetalle() {
         onClose={() => setConfirmarBorrado(false)}
         onConfirm={onEliminar}
         title="Eliminar receta"
-        description="Se borraran tambien todos sus ingredientes. Esta accion no se puede deshacer."
+        description="Se borrarán también todos sus ingredientes. Esta acción no se puede deshacer."
       />
 
       <AnotarRecetaModal recipeId={id} open={anotarAbierto} onClose={() => setAnotarAbierto(false)} />

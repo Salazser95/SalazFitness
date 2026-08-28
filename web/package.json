@@ -12,7 +12,8 @@
     "app:android": "npx cap sync android",
     "app:ios": "npx cap sync ios",
     "app:abrir:android": "npx cap open android",
-    "app:abrir:ios": "npx cap open ios"
+    "app:abrir:ios": "npx cap open ios",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@capacitor/android": "^7.6.8",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^7.6.8",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

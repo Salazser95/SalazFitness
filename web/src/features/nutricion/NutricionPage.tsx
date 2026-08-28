@@ -14,7 +14,7 @@ const PESTANAS = [
 function Pestanas() {
   return (
     <nav
-      aria-label="Secciones de nutricion"
+      aria-label="Secciones de nutrición"
       className="mb-5 flex gap-1 overflow-x-auto rounded-[14px] border border-border bg-surface p-1"
     >
       {PESTANAS.map((p) => (
@@ -39,7 +39,7 @@ function Pestanas() {
 export default function NutricionPage() {
   return (
     <>
-      <PageTitle>Nutricion</PageTitle>
+      <PageTitle>Nutrición</PageTitle>
       <Pestanas />
       <Routes>
         <Route index element={<DiarioPage />} />

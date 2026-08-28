@@ -86,7 +86,7 @@ function FilaLog({
         <button
           type="button"
           onClick={() => setEditando(false)}
-          aria-label="Cancelar edicion"
+          aria-label="Cancelar edición"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle transition-colors duration-150 hover:bg-surface-3"
         >
           <X size={16} aria-hidden="true" />
@@ -130,7 +130,7 @@ function SesionLogs({ sessionId }: { sessionId: string }) {
   if (logs.isLoading) return <SkeletonList rows={2} height="h-8" />
   if (logs.isError) return <ErrorState message="No se han podido cargar las series." />
   if (!logs.data || logs.data.length === 0) {
-    return <p className="text-sm text-fg-subtle">No se registro ninguna serie en esta sesion.</p>
+    return <p className="text-sm text-fg-subtle">No se registró ninguna serie en esta sesión.</p>
   }
 
   return (
@@ -160,7 +160,7 @@ function SesionLogs({ sessionId }: { sessionId: string }) {
           if (logABorrar) eliminar.mutate(logABorrar.id)
         }}
         title="Eliminar serie"
-        description="Se borra el registro de esta serie. Si en realidad si la hiciste, no la borres: editala en vez de eliminarla."
+        description="Se borra el registro de esta serie. Si en realidad sí la hiciste, no la borres: edítala en vez de eliminarla."
         confirmLabel="Eliminar"
       />
     </>
@@ -204,8 +204,8 @@ export default function HistorialPage() {
       {sessions.data && sessions.data.length === 0 ? (
         <EmptyState
           icon={CalendarDays}
-          title="Todavia no hay entrenos registrados"
-          description="Cuando termines una sesion en el modo gimnasio, aparecera aqui."
+          title="Todavía no hay entrenos registrados"
+          description="Cuando termines una sesión en el modo gimnasio, aparecerá aquí."
         />
       ) : null}
 

@@ -53,16 +53,15 @@ import {
   useWeightEntries,
   useWorkoutLogs,
   useWorkoutSessions,
+  leerObjetivo,
+  TIPOS_OBJETIVO,
+  useGuardarObjetivo,
+  useObjetivo,
+  type Objetivo,
+  type TipoObjetivo,
   type UserProfilePatch,
 } from './api'
 import { BarraProgreso, SelectField, TabBar, ToggleField, type TabId } from './components'
-import {
-  guardarObjetivo,
-  leerObjetivo,
-  TIPOS_OBJETIVO,
-  type Objetivo,
-  type TipoObjetivo,
-} from './objetivo'
 import {
   calcularEdad,
   calcularIMC,
@@ -118,13 +117,29 @@ const OTRO_SUPERMERCADO = 'Otro'
 
 // ------------------------------------------------------------------ Perfil
 
+const OBJETIVO_VACIO: Objetivo = { peso: null, fecha: null, tipo: null }
+
 function PerfilTab() {
   const profileQ = useUserProfile()
   const updateProfile = useUpdateUserProfile()
   const pesoQ = useWeightEntries()
+  const objetivoQ = useObjetivo()
+  const guardarObjetivo = useGuardarObjetivo()
 
   const [form, setForm] = useState<UserProfilePatch | null>(null)
-  const [objetivo, setObjetivo] = useState<Objetivo>(() => leerObjetivo())
+  // Borrador local del objetivo: el usuario escribe aqui y se guarda con
+  // retardo (ver actualizarObjetivo), igual que `form` de arriba espera a
+  // que llegue el perfil del servidor antes de sembrarse. `objetivo` (sin
+  // sufijo) es la version no nula que usa el resto del componente: mientras
+  // el servidor no ha respondido todavia, se ve como un objetivo vacio, no
+  // como una pantalla de carga aparte.
+  const [objetivoDraft, setObjetivoDraft] = useState<Objetivo | null>(null)
+  const objetivo = objetivoDraft ?? OBJETIVO_VACIO
+  const temporizadorObjetivo = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (objetivoQ.data && objetivoDraft === null) setObjetivoDraft(objetivoQ.data)
+  }, [objetivoQ.data, objetivoDraft])
 
   useEffect(() => {
     if (profileQ.data && form === null) {
@@ -167,11 +182,45 @@ function PerfilTab() {
     return ritmoSemanalNecesario(pesoActual.actual, objetivo.peso, objetivo.fecha)
   }, [objetivo.peso, objetivo.fecha, pesoActual])
 
+  // Guardan siempre el ultimo valor, para que la limpieza del efecto de
+  // desmontaje de abajo no cierre sobre datos viejos (un array de
+  // dependencias vacio en ese efecto significaria que solo ve el `objetivo`
+  // y el `guardarObjetivo` del primer render). Se actualizan en un efecto,
+  // no durante el render: mutar un ref mientras se renderiza es lo que
+  // avisa oxlint que no hay que hacer.
+  const objetivoRef = useRef(objetivo)
+  const guardarObjetivoRef = useRef(guardarObjetivo)
+  useEffect(() => {
+    objetivoRef.current = objetivo
+    guardarObjetivoRef.current = guardarObjetivo
+  }, [objetivo, guardarObjetivo])
+
+  /**
+   * Actualiza el borrador al instante (para que escribir se sienta
+   * inmediato) y guarda en el servidor con 500ms de retardo: sin esto, cada
+   * digito escrito en "peso objetivo" mandaria una peticion suelta. Si el
+   * usuario sigue escribiendo, el temporizador anterior se cancela y
+   * empieza de nuevo.
+   */
   function actualizarObjetivo(patch: Partial<Objetivo>) {
     const nuevo = { ...objetivo, ...patch }
-    setObjetivo(nuevo)
-    guardarObjetivo(nuevo)
+    setObjetivoDraft(nuevo)
+    if (temporizadorObjetivo.current) clearTimeout(temporizadorObjetivo.current)
+    temporizadorObjetivo.current = setTimeout(() => {
+      guardarObjetivo.mutate(nuevo)
+    }, 500)
   }
+
+  // Si se desmonta con un guardado pendiente (cambia de pestana antes de que
+  // pasen los 500ms), lo manda ya en vez de perderlo.
+  useEffect(() => {
+    return () => {
+      if (temporizadorObjetivo.current) {
+        clearTimeout(temporizadorObjetivo.current)
+        guardarObjetivoRef.current.mutate(objetivoRef.current)
+      }
+    }
+  }, [])
 
   if (profileQ.isLoading || !form) return <SkeletonList rows={3} height="h-16" />
   if (profileQ.isError) {
@@ -181,7 +230,7 @@ function PerfilTab() {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Edad" value={edad !== null ? int(edad) : '-'} unit="anos" accent="accent" />
+        <StatCard label="Edad" value={edad !== null ? int(edad) : '-'} unit="años" accent="accent" />
         <StatCard
           label="Peso actual"
           value={pesoActual ? num(pesoActual.actual) : '-'}
@@ -236,7 +285,7 @@ function PerfilTab() {
             value={form.weight_unit}
             onChange={(e) => setForm({ ...form, weight_unit: e.target.value as 'kg' | 'lb' })}
           >
-            <option value="kg">Metrico (kg)</option>
+            <option value="kg">Métrico (kg)</option>
             <option value="lb">Imperial (lb)</option>
           </SelectField>
           <SelectField
@@ -267,7 +316,7 @@ function PerfilTab() {
             <option value="3">Alta</option>
           </SelectField>
           <Field
-            label="Calorias objetivo"
+            label="Calorías objetivo"
             type="number"
             inputMode="numeric"
             value={form.calories ?? ''}
@@ -402,8 +451,8 @@ function ProgresoTab() {
         {pesoQ.data && datosPeso.length === 0 ? (
           <EmptyState
             icon={Scale}
-            title="Sin pesajes todavia"
-            description="Anade tu primer peso para empezar a ver la evolucion."
+            title="Sin pesajes todavía"
+            description="Añade tu primer peso para empezar a ver la evolución."
           />
         ) : null}
 
@@ -441,7 +490,7 @@ function ProgresoTab() {
                 <Line
                   type="monotone"
                   dataKey="media"
-                  name="Media 7 dias"
+                  name="Media 7 días"
                   stroke={COLORES_GRAFICA[0]}
                   strokeWidth={2.5}
                   dot={false}
@@ -471,7 +520,7 @@ function ProgresoTab() {
           />
           <Button type="submit" disabled={addPeso.isPending}>
             <Plus size={18} aria-hidden="true" />
-            {addPeso.isPending ? 'Anadiendo...' : 'Anadir peso'}
+            {addPeso.isPending ? 'Añadiendo...' : 'Añadir peso'}
           </Button>
         </form>
       </Card>
@@ -502,7 +551,7 @@ function ProgresoTab() {
             </ResponsiveContainer>
           </div>
         ) : sesionesQ.data ? (
-          <p className="py-8 text-center text-sm text-fg-muted">Sin sesiones registradas todavia.</p>
+          <p className="py-8 text-center text-sm text-fg-muted">Sin sesiones registradas todavía.</p>
         ) : null}
       </Card>
 
@@ -532,14 +581,14 @@ function ProgresoTab() {
             </ResponsiveContainer>
           </div>
         ) : logsQ.data ? (
-          <p className="py-8 text-center text-sm text-fg-muted">Sin series con peso registradas todavia.</p>
+          <p className="py-8 text-center text-sm text-fg-muted">Sin series con peso registradas todavía.</p>
         ) : null}
       </Card>
 
       <Card>
         <SectionLabel>Records personales</SectionLabel>
         {records.length === 0 ? (
-          <p className="py-8 text-center text-sm text-fg-muted">Todavia no hay series con peso registradas.</p>
+          <p className="py-8 text-center text-sm text-fg-muted">Todavía no hay series con peso registradas.</p>
         ) : (
           <ul className="space-y-2">
             {records.map((r) => (
@@ -616,14 +665,14 @@ function FotosProgreso() {
         <ErrorState message="No se han podido cargar las fotos." onRetry={() => void fotosQ.refetch()} />
       ) : null}
       {subirFoto.isError ? (
-        <p className="mt-3 text-sm text-danger">No se ha podido subir la foto. Intentalo de nuevo.</p>
+        <p className="mt-3 text-sm text-danger">No se ha podido subir la foto. Inténtalo de nuevo.</p>
       ) : null}
 
       {fotosQ.data && fotosOrdenadas.length === 0 ? (
         <EmptyState
           icon={Camera}
-          title="Sin fotos todavia"
-          description="Sube tu primera foto de progreso para poder comparar mas adelante."
+          title="Sin fotos todavía"
+          description="Sube tu primera foto de progreso para poder comparar más adelante."
           action={{ label: 'Subir foto', onClick: () => inputRef.current?.click() }}
         />
       ) : null}
@@ -657,7 +706,7 @@ function FotosProgreso() {
           if (fotoABorrar !== null) borrarFoto.mutate(fotoABorrar)
         }}
         title="Eliminar foto"
-        description="Esta foto se borrara permanentemente."
+        description="Esta foto se borrará permanentemente."
       />
     </Card>
   )
@@ -731,8 +780,8 @@ function MedidasTab() {
     return (
       <EmptyState
         icon={Ruler}
-        title="Sin categorias de medidas"
-        description="Crea las categorias habituales (cintura, cadera, pecho, brazo, muslo) para empezar a registrar."
+        title="Sin categorías de medidas"
+        description="Crea las categorías habituales (cintura, cadera, pecho, brazo, muslo) para empezar a registrar."
         action={{
           label: creandoHabituales ? 'Creando...' : 'Crear habituales',
           onClick: () => void crearHabituales(),
@@ -744,7 +793,7 @@ function MedidasTab() {
   return (
     <div className="space-y-5">
       <Card>
-        <SectionLabel>Categorias</SectionLabel>
+        <SectionLabel>Categorías</SectionLabel>
         <div className="flex flex-wrap gap-2">
           {(categoriasQ.data ?? []).map((c) => (
             <Button
@@ -761,7 +810,7 @@ function MedidasTab() {
 
         <form onSubmit={onCrearCategoria} className="mt-4 flex flex-wrap items-end gap-3">
           <Field
-            label="Nueva categoria"
+            label="Nueva categoría"
             placeholder="p.ej. Cuello"
             value={nombreNueva}
             onChange={(e) => setNombreNueva(e.target.value)}
@@ -788,7 +837,7 @@ function MedidasTab() {
           {medicionesQ.isLoading ? <SkeletonList rows={1} height="h-56" /> : null}
 
           {medicionesCategoria.length === 0 && medicionesQ.data ? (
-            <p className="py-8 text-center text-sm text-fg-muted">Sin valores registrados todavia.</p>
+            <p className="py-8 text-center text-sm text-fg-muted">Sin valores registrados todavía.</p>
           ) : null}
 
           {medicionesCategoria.length > 0 ? (
@@ -881,11 +930,11 @@ function TarjetaServidor() {
     <Card>
       <SectionLabel>Servidor</SectionLabel>
       <p className="text-sm text-fg-muted">
-        La direccion de tu servidor de SalazFitness. Dejalo en blanco si abres la app desde el
+        La dirección de tu servidor de SalazFitness. Déjalo en blanco si abres la app desde el
         navegador: entonces usa el mismo sitio desde el que se ha cargado.
       </p>
       <Field
-        label="Direccion"
+        label="Dirección"
         placeholder={SERVIDOR_POR_DEFECTO || 'https://salazfitness.tudominio.com'}
         value={valor}
         inputMode="url"
@@ -904,7 +953,7 @@ function TarjetaServidor() {
       </Button>
       {guardado ? (
         <p className="mt-3 text-sm text-success">
-          Guardado{normalizado ? `: ${normalizado}` : ' (se usara el servidor por defecto)'}.
+          Guardado{normalizado ? `: ${normalizado}` : ' (se usará el servidor por defecto)'}.
         </p>
       ) : null}
     </Card>
@@ -936,11 +985,13 @@ function AjustesTab() {
     localStorage.setItem(CLAVE_IDIOMA, codigo)
   }
 
-  function exportarDatos() {
+  async function exportarDatos() {
     const datos = {
       exportadoEl: new Date().toISOString(),
       perfil: profileQ.data ?? null,
-      objetivo: leerObjetivo(),
+      // El objetivo ya no es una lectura sincrona de localStorage: viene del
+      // servidor (ver useObjetivo/leerObjetivo en yo/api.ts).
+      objetivo: await leerObjetivo(),
     }
     const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)

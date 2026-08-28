@@ -128,6 +128,14 @@ export type ShoppingListItem = {
   shopping_list: number
   ingredient: number | null
   name: string
+  /**
+   * Identifica "el mismo producto" a traves de sus tandas: lo asigna siempre
+   * el backend (generador_lista comparte uno por producto entre sus tandas;
+   * una linea suelta creada a mano nace con el suyo propio). Nunca se agrupa
+   * por nombre en el cliente: dos lineas de texto libre con el mismo nombre
+   * en la misma lista no son necesariamente el mismo producto que comprar.
+   */
+  group_key: string
   amount: number
   unit: string
   estimated_price: string

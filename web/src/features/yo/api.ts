@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, fetchAll } from '../../lib/api'
+import type { Paginated } from '../../lib/api'
 import { urlApi } from '../../lib/config'
 import { readTokens } from '../../lib/tokens'
 import { today } from '../../lib/format'
+import { queryClient } from '../../lib/query'
 
 /**
  * Acceso a la API de wger para la pantalla "Yo". Formas verificadas contra el
@@ -308,4 +310,99 @@ export function useExerciseNames(ids: number[]) {
     enabled: unicos.length > 0,
     staleTime: 5 * 60_000,
   })
+}
+
+// -------------------------------------------------------- objetivo de peso
+
+// wger no tiene campos para esto: se ha comprobado que "goal_weight" da 0
+// resultados en el repositorio (ver docs/API-CONTRACT.md). Vive en el
+// servidor propio (salaz/models/weight_goal.py): antes estaba en
+// localStorage, y por eso cambiarlo en un dispositivo no se notaba en otro.
+export type TipoObjetivo =
+  | 'perder_peso'
+  | 'mantener_peso'
+  | 'ganar_peso'
+  | 'ganar_masa_muscular'
+  | 'mejorar_fuerza'
+  | 'recomposicion_corporal'
+
+export const TIPOS_OBJETIVO: { value: TipoObjetivo; label: string }[] = [
+  { value: 'perder_peso', label: 'Perder peso' },
+  { value: 'mantener_peso', label: 'Mantener peso' },
+  { value: 'ganar_peso', label: 'Ganar peso' },
+  { value: 'ganar_masa_muscular', label: 'Ganar masa muscular' },
+  { value: 'mejorar_fuerza', label: 'Mejorar fuerza' },
+  { value: 'recomposicion_corporal', label: 'Recomposición corporal' },
+]
+
+export type Objetivo = {
+  peso: number | null
+  fecha: string | null // YYYY-MM-DD
+  tipo: TipoObjetivo | null
+}
+
+type ObjetivoPesoApi = {
+  id: number
+  goal_type: TipoObjetivo | ''
+  target_weight: string | null
+  target_date: string | null
+  updated_at: string
+}
+
+const OBJETIVO_VACIO: Objetivo = { peso: null, fecha: null, tipo: null }
+
+function objetivoDesdeApi(o: ObjetivoPesoApi | undefined): Objetivo {
+  if (!o) return OBJETIVO_VACIO
+  return {
+    peso: o.target_weight !== null ? Number(o.target_weight) : null,
+    fecha: o.target_date,
+    tipo: o.goal_type || null,
+  }
+}
+
+async function cargarObjetivo(): Promise<Objetivo> {
+  const pagina = await api.get<Paginated<ObjetivoPesoApi>>('/api/v2/salaz/weight-goal/')
+  return objetivoDesdeApi(pagina.results[0])
+}
+
+const claveObjetivo = ['yo', 'objetivo-peso'] as const
+
+export function useObjetivo() {
+  return useQuery({ queryKey: claveObjetivo, queryFn: cargarObjetivo })
+}
+
+/**
+ * Guarda el objetivo con actualizacion optimista (los campos del formulario
+ * tienen que sentirse instantaneos al escribir), y con retardo: sin el
+ * retardo, cada digito escrito en "peso objetivo" mandaria una peticion
+ * suelta. `useDebouncedCallback` en YoPage.tsx es quien decide cuando llamar
+ * a `mutate`; este hook solo sabe guardar y hacer rollback si falla.
+ */
+export function useGuardarObjetivo() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (o: Objetivo) =>
+      api.post<ObjetivoPesoApi>('/api/v2/salaz/weight-goal/', {
+        goal_type: o.tipo ?? '',
+        target_weight: o.peso !== null ? String(o.peso) : null,
+        target_date: o.fecha,
+      }),
+    onMutate: async (o) => {
+      await qc.cancelQueries({ queryKey: claveObjetivo })
+      const anterior = qc.getQueryData<Objetivo>(claveObjetivo)
+      qc.setQueryData(claveObjetivo, o)
+      return { anterior }
+    },
+    onError: (_err, _o, contexto) => {
+      if (contexto?.anterior) qc.setQueryData(claveObjetivo, contexto.anterior)
+    },
+    onSuccess: (guardado) => qc.setQueryData(claveObjetivo, objetivoDesdeApi(guardado)),
+  })
+}
+
+/** Lectura puntual fuera de un componente (usada por la exportacion de datos de Ajustes). */
+export function leerObjetivo(): Promise<Objetivo> {
+  const cacheado = queryClient.getQueryData<Objetivo>(claveObjetivo)
+  if (cacheado) return Promise.resolve(cacheado)
+  return cargarObjetivo()
 }

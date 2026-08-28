@@ -1,12 +1,17 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CalendarDays, ChevronRight, Dumbbell, Plus, Trash2, Zap } from 'lucide-react'
+import { CalendarClock, CalendarDays, ChevronRight, Dumbbell, Plus, Trash2, Zap } from 'lucide-react'
 
 import { Button, Card, ConfirmModal, EmptyState, ErrorState, PageTitle, SkeletonList } from '../../components/ui'
 import { shortDate, today } from '../../lib/format'
 import { ActivarRutinaModal } from './components/ActivarRutinaModal'
-import { escribirRutinaActivaId } from './local'
-import { useActiveRoutine, useEliminarRutina, useRoutines, type Routine } from './api'
+import {
+  escribirRutinaActivaId,
+  useActiveRoutine,
+  useEliminarRutina,
+  useRoutines,
+  type Routine,
+} from './api'
 
 export default function RutinasListaPage() {
   const navigate = useNavigate()
@@ -20,7 +25,7 @@ export default function RutinasListaPage() {
 
   /** Guarda la eleccion; si sus fechas no cubren hoy, ofrece desplazarlas (sin forzarlo). */
   function activar(r: Routine) {
-    escribirRutinaActivaId(r.id)
+    void escribirRutinaActivaId(r.id)
     const hoy = today()
     const cubreHoy = r.start <= hoy && hoy <= r.end
     if (!cubreHoy) setRutinaParaDesplazar(r)
@@ -43,13 +48,17 @@ export default function RutinasListaPage() {
         Entreno
       </PageTitle>
 
-      <div className="mb-5 flex gap-2">
+      <div className="mb-5 flex flex-wrap gap-2">
         <Button size="sm" onClick={() => navigate('/entreno/rutina/nueva')}>
           <Plus size={16} aria-hidden="true" />
           Nueva rutina
         </Button>
         <Button variant="secondary" size="sm" onClick={() => navigate('/entreno/importar-plantilla')}>
           Importar plantilla
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => navigate('/entreno/calendario')}>
+          <CalendarClock size={16} aria-hidden="true" />
+          Calendario
         </Button>
       </div>
 
@@ -65,7 +74,7 @@ export default function RutinasListaPage() {
       {routines.data && routines.data.length === 0 ? (
         <EmptyState
           icon={Dumbbell}
-          title="Todavia no tienes rutinas"
+          title="Todavía no tienes rutinas"
           description="Crea una rutina en wger para empezar a entrenar."
         />
       ) : null}
@@ -131,7 +140,7 @@ export default function RutinasListaPage() {
           if (rutinaABorrar) void eliminar.mutateAsync(rutinaABorrar.id)
         }}
         title={`Eliminar "${rutinaABorrar?.name ?? ''}"`}
-        description="Se borraran tambien todos sus dias y ejercicios configurados. No se puede deshacer."
+        description="Se borrarán también todos sus días y ejercicios configurados. No se puede deshacer."
       />
 
       <ActivarRutinaModal routine={rutinaParaDesplazar} onClose={() => setRutinaParaDesplazar(null)} />

@@ -131,6 +131,29 @@ input, textarea, select {
   padding-top: calc(0.5rem + env(safe-area-inset-top));
 }
 
+/*
+ * Fondo de un modal (Modal, ConfirmModal, el lightbox de Thumbnail): la
+ * altura NO puede ser un simple `h-full`/`inset-0` a secas. Safari en
+ * iPhone mide `100vh` contra el viewport "grande" (el que existe con la
+ * barra de direcciones OCULTA), que es mas alto que lo que de verdad se ve
+ * cuando esa barra esta visible. Con solo inset-0, el centro calculado cae
+ * por debajo del centro visible, y la parte de abajo del modal (el titulo,
+ * los botones) queda tapada por la propia barra de Safari o por la
+ * navegacion inferior de la app.
+ *
+ * `100dvh` ("dynamic viewport height") se recalcula contra el viewport
+ * visible de verdad, chrome de Safari incluido, y por eso va DESPUES de
+ * `100vh` en la misma regla: un navegador sin soporte de dvh descarta esa
+ * segunda declaracion como invalida y se queda con el 100vh de respaldo, en
+ * vez de quedarse sin altura ninguna.
+ */
+@utility superposicion-modal {
+  height: 100vh;
+  height: 100dvh;
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+}
+
 /* ------------------------------------------------------------ animaciones */
 
 @keyframes salaz-rise {

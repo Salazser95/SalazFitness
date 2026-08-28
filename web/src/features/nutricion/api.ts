@@ -282,7 +282,7 @@ export function useCrearPlan() {
       await Promise.all(
         MEAL_NAMES.map((name) => api.post('/api/v2/meal/', { plan: plan.id, name })),
       )
-      escribirPlanActivoId(plan.id)
+      await escribirPlanActivoId(plan.id)
       return plan
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['nutricion'] }),
@@ -428,7 +428,7 @@ export function useBuscarPorCodigo() {
 export function useElegirPlanActivo(): (id: string) => void {
   // No hace falta invalidar nada: no cambia ningun dato del servidor. Basta
   // con escribir la preferencia; `escribirPlanActivoId` ya avisa a `usePlan`.
-  return (id: string) => escribirPlanActivoId(id)
+  return (id: string) => void escribirPlanActivoId(id)
 }
 
 /**
@@ -441,8 +441,8 @@ export function useEliminarPlan() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.del(`/api/v2/nutritionplan/${id}/`),
-    onSuccess: (_data, id) => {
-      if (leerPlanActivoId() === id) escribirPlanActivoId(null)
+    onSuccess: async (_data, id) => {
+      if ((await leerPlanActivoId()) === id) await escribirPlanActivoId(null)
       qc.invalidateQueries({ queryKey: ['nutricion'] })
     },
   })
@@ -486,7 +486,7 @@ export function useDuplicarPlan() {
           ),
         )
       }
-      escribirPlanActivoId(nuevo.id)
+      await escribirPlanActivoId(nuevo.id)
       return nuevo
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['nutricion'] }),

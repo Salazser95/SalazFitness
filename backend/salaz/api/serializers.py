@@ -16,6 +16,8 @@ from salaz.models import (
     WaterLog,
     WeeklyPlan,
     WeightGoal,
+    WorkoutDaySkip,
+    WorkoutReschedule,
     WorkoutSessionDraft,
 )
 
@@ -198,8 +200,12 @@ class ShoppingListItemSerializer(serializers.ModelSerializer):
             'freeze_on_arrival',
             'source',
             'note',
+            'group_key',
         ]
-        read_only_fields = ['id']
+        # group_key lo asigna el backend (generador_lista o el default del
+        # modelo): dejarlo escribible desde el cliente permitiria juntar (o
+        # separar) productos con solo mandar el mismo valor a mano.
+        read_only_fields = ['id', 'group_key']
 
     def create(self, validated_data):
         """
@@ -277,6 +283,38 @@ class RecentIngredientSerializer(serializers.ModelSerializer):
     class Meta:
         model = RecentIngredient
         fields = ['id', 'user', 'ingredient', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class WorkoutRescheduleSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    created = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WorkoutReschedule
+        fields = [
+            'id',
+            'user',
+            'origin_date',
+            'target_date',
+            'origin_routine',
+            'origin_day',
+            'target_routine',
+            'target_day',
+            'created',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'user', 'created', 'updated_at']
+
+
+class WorkoutDaySkipSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WorkoutDaySkip
+        fields = ['id', 'user', 'date', 'updated_at']
         read_only_fields = ['id', 'user', 'updated_at']
 
 

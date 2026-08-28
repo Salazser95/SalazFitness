@@ -1,6 +1,8 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -25,6 +27,8 @@ from salaz.api.serializers import (
     WaterLogSerializer,
     WeeklyPlanSerializer,
     WeightGoalSerializer,
+    WorkoutDaySkipSerializer,
+    WorkoutRescheduleSerializer,
     WorkoutSessionDraftSerializer,
 )
 from salaz.generador_lista import anadir_cesta, generar_lista, productos_del_plan
@@ -44,6 +48,8 @@ from salaz.models import (
     WaterLog,
     WeeklyPlan,
     WeightGoal,
+    WorkoutDaySkip,
+    WorkoutReschedule,
     WorkoutSessionDraft,
 )
 from salaz.models.recent_ingredient import MAX_RECIENTES
@@ -475,6 +481,34 @@ class ShoppingListItemViewSet(viewsets.ModelViewSet):
             return ShoppingListItem.objects.none()
         return ShoppingListItem.objects.filter(shopping_list__household__owner=self.request.user)
 
+    @action(detail=False, methods=['delete'], url_path='by-group/(?P<group_key>[^/.]+)')
+    def by_group(self, request, group_key=None):
+        """
+        Quita un producto de TODA la lista de una vez: todas sus tandas
+        (ver group_key en el modelo), no solo la fila que se toco.
+
+        Una sola peticion atomica en vez de una por fila (el patron anterior,
+        N DELETE seguidos desde el cliente): si el movil pierde la conexion a
+        mitad, con N peticiones sueltas el producto queda a medio borrar en
+        unas tandas si y en otras no. Con una transaccion, o se borra entero
+        o no se borra nada.
+
+        get_queryset ya filtra por el usuario que llama, asi que esto nunca
+        toca lineas de un hogar ajeno aunque alguien adivine el group_key.
+        """
+        lineas = list(self.get_queryset().filter(group_key=group_key))
+        if not lineas:
+            return Response({'detail': 'Ese grupo no existe.'}, status=status.HTTP_404_NOT_FOUND)
+
+        shopping_list_id = lineas[0].shopping_list_id
+        with transaction.atomic():
+            self.get_queryset().filter(group_key=group_key).delete()
+
+        return Response(
+            {'shopping_list': shopping_list_id, 'deleted': len(lineas)},
+            status=status.HTTP_200_OK,
+        )
+
 
 # ----------------------------------------------------------------------------
 # Datos que antes solo vivian en el localStorage del navegador (ver la tarea
@@ -630,6 +664,88 @@ class RecentIngredientViewSet(viewsets.ModelViewSet):
         )
         RecentIngredient.objects.filter(user=request.user).exclude(id__in=ids_a_conservar).delete()
 
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WorkoutRescheduleViewSet(viewsets.ModelViewSet):
+    """
+    Intercambiar el entreno de una fecha con el de otra. Ver la nota completa
+    en salaz/models/workout_reschedule.py: es un intercambio de dos mitades,
+    no un mover a secas, y la rutina/dia de cada mitad se congelan en el
+    momento de crear la fila (no se recalculan despues).
+
+    Deshacer un movimiento es un DELETE normal sobre la fila: no hay un
+    estado que cambiar, cada movimiento nuevo es su propia fila.
+    """
+
+    serializer_class = WorkoutRescheduleSerializer
+    is_private = True
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WorkoutReschedule.objects.none()
+        return WorkoutReschedule.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        origen = _parse_date(request.data.get('origin_date'))
+        destino = _parse_date(request.data.get('target_date'))
+        if origen is None or destino is None:
+            return Response(
+                {'detail': 'origin_date and target_date are required and must be YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if origen == destino:
+            return Response(
+                {'detail': 'origin_date and target_date must be different.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Ninguna de las dos fechas puede estar ya metida en otro movimiento
+        # activo, ni como origen ni como destino: las UniqueConstraint del
+        # modelo solo cubren una columna cada una, esto cubre el cruce entre
+        # las dos (una constraint de base de datos no puede comparar
+        # origin_date de una fila nueva contra target_date de una existente).
+        # Si una fecha ya esta movida, hay que deshacer esa fila primero.
+        fechas = (origen, destino)
+        ya_movida = WorkoutReschedule.objects.filter(user=request.user).filter(
+            Q(origin_date__in=fechas) | Q(target_date__in=fechas)
+        )
+        if ya_movida.exists():
+            return Response(
+                {'detail': 'One of these dates is already part of another reschedule. Undo it first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(user=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WorkoutDaySkipViewSet(viewsets.ModelViewSet):
+    """
+    Marca una fecha como omitida a proposito (ver la nota completa en
+    salaz/models/workout_day_skip.py sobre por que esto no es lo mismo que
+    la ausencia de datos). Una sola fila por (usuario, fecha).
+    """
+
+    serializer_class = WorkoutDaySkipSerializer
+    is_private = True
+    filterset_fields = ('date',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WorkoutDaySkip.objects.none()
+        return WorkoutDaySkip.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        fecha = _parse_date(request.data.get('date'))
+        if fecha is None:
+            return Response(
+                {'detail': 'date is required and must be YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Marcar dos veces la misma fecha no es un error: ya estaba omitida.
+        instance, _ = WorkoutDaySkip.objects.get_or_create(user=request.user, date=fecha)
         serializer = self.get_serializer(instance)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 

@@ -14,6 +14,8 @@ from salaz.models.shopping_list_item import ShoppingListItem
 from salaz.models.water_log import WaterLog
 from salaz.models.weekly_plan import WeeklyPlan
 from salaz.models.weight_goal import WeightGoal
+from salaz.models.workout_day_skip import WorkoutDaySkip
+from salaz.models.workout_reschedule import WorkoutReschedule
 from salaz.models.workout_session_draft import WorkoutSessionDraft
 
 __all__ = [
@@ -33,5 +35,7 @@ __all__ = [
     'WaterLog',
     'WeeklyPlan',
     'WeightGoal',
+    'WorkoutDaySkip',
+    'WorkoutReschedule',
     'WorkoutSessionDraft',
 ]

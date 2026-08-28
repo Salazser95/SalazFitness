@@ -90,9 +90,9 @@ export default function ResumenPage() {
       </div>
 
       <Card>
-        <SectionLabel>Evolucion del gasto por semana</SectionLabel>
+        <SectionLabel>Evolución del gasto por semana</SectionLabel>
         {datosBarras.length === 0 ? (
-          <p className="py-8 text-center text-sm text-fg-muted">Todavia no hay compras suficientes.</p>
+          <p className="py-8 text-center text-sm text-fg-muted">Todavía no hay compras suficientes.</p>
         ) : (
           <div className="h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -129,9 +129,9 @@ export default function ResumenPage() {
       </Card>
 
       <Card>
-        <SectionLabel>Reparto por persona (ultimos {DIAS_VENTANA} dias)</SectionLabel>
+        <SectionLabel>Reparto por persona (últimos {DIAS_VENTANA} días)</SectionLabel>
         {datosTarta.length === 0 ? (
-          <p className="py-8 text-center text-sm text-fg-muted">Todavia no hay gasto que repartir.</p>
+          <p className="py-8 text-center text-sm text-fg-muted">Todavía no hay gasto que repartir.</p>
         ) : (
           <div className="flex flex-col items-center gap-4 sm:flex-row">
             <div className="h-48 w-48 shrink-0">

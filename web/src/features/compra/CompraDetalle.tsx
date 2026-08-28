@@ -160,7 +160,7 @@ export default function CompraDetalle() {
             <Store size={14} aria-hidden="true" />
             {compra.data.supermarket}
           </span>
-          <span>{compra.data.covers_days} dias</span>
+          <span>{compra.data.covers_days} días</span>
         </p>
       </Card>
 
@@ -176,7 +176,7 @@ export default function CompraDetalle() {
       </Card>
 
       <div>
-        <SectionLabel>Lineas</SectionLabel>
+        <SectionLabel>Líneas</SectionLabel>
         <ul className="space-y-2">
           {listaLineas.map((linea) => {
             const marcado = comprados.has(linea.id)
@@ -219,14 +219,14 @@ export default function CompraDetalle() {
           })}
         </ul>
         <p className="mt-2 text-xs text-fg-subtle">
-          Para anadir, editar o quitar lineas, usa "Editar" arriba. La casilla de comprado se
-          guarda solo en este dispositivo (todavia no existe ese campo en el backend).
+          Para añadir, editar o quitar líneas, usa "Editar" arriba. La casilla de comprado se
+          guarda solo en este dispositivo (todavía no existe ese campo en el backend).
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Coste por dia" value={eur(breakdown.data.cost_per_day)} accent="violet" />
-        <StatCard label="Lineas" value={String(listaLineas.length)} accent="violet" />
+        <StatCard label="Coste por día" value={eur(breakdown.data.cost_per_day)} accent="violet" />
+        <StatCard label="Líneas" value={String(listaLineas.length)} accent="violet" />
       </div>
 
       <Card>
@@ -244,7 +244,7 @@ export default function CompraDetalle() {
                   {centimosAEur(
                     costeDiarioPorPersona(eurosACentimos(p.amount), compra.data.covers_days),
                   )}
-                  {' al dia'}
+                  {' al día'}
                 </span>
               </span>
             </li>
@@ -253,7 +253,7 @@ export default function CompraDetalle() {
       </Card>
 
       <Card>
-        <SectionLabel>Proyeccion de este ritmo de gasto</SectionLabel>
+        <SectionLabel>Proyección de este ritmo de gasto</SectionLabel>
         <div className="grid grid-cols-3 gap-3 text-center">
           <div>
             <p className="text-xs uppercase tracking-[0.08em] text-fg-muted">Semanal</p>
@@ -275,7 +275,7 @@ export default function CompraDetalle() {
         onClose={() => setConfirmarBorrado(false)}
         onConfirm={onEliminar}
         title="Eliminar compra"
-        description="Se borraran tambien todas sus lineas. Esta accion no se puede deshacer."
+        description="Se borrarán también todas sus líneas. Esta acción no se puede deshacer."
       />
     </div>
   )

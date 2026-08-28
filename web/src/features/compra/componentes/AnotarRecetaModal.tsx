@@ -79,7 +79,7 @@ export function AnotarRecetaModal({
       ) : !plan.data ? (
         <div className="space-y-4">
           <p className="text-sm text-fg-muted">
-            Todavia no tienes un plan nutricional. Crea uno primero en Nutricion &gt; Diario.
+            Todavía no tienes un plan nutricional. Crea uno primero en Nutrición &gt; Diario.
           </p>
           <Button full variant="secondary" onClick={cerrar}>
             Cerrar
@@ -132,9 +132,9 @@ export function AnotarRecetaModal({
           />
 
           {lista.length === 0 ? (
-            <p className="text-sm text-danger">Esta receta no tiene ingredientes todavia.</p>
+            <p className="text-sm text-danger">Esta receta no tiene ingredientes todavía.</p>
           ) : null}
-          {anotar.isError ? <p className="text-sm text-danger">No se pudo anotar. Intentalo de nuevo.</p> : null}
+          {anotar.isError ? <p className="text-sm text-danger">No se pudo anotar. Inténtalo de nuevo.</p> : null}
 
           <Button full onClick={onConfirmar} disabled={anotar.isPending || !mealId || lista.length === 0}>
             {anotar.isPending ? 'Anotando...' : 'Anotar en el diario'}

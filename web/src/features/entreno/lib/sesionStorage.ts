@@ -1,9 +1,12 @@
 /**
- * Progreso del modo gimnasio guardado en localStorage.
+ * Forma del progreso de una sesion de gimnasio en curso.
  *
- * Si el usuario recarga la pagina a media sesion (pasa en el gimnasio: se
- * cae el wifi, se bloquea el movil) no se puede perder lo que ya ha hecho.
- * Se guarda por fecha+rutina: si cambia el dia, la sesion vieja no se reutiliza.
+ * Antes se guardaba en localStorage (de ahi el nombre del fichero): si se
+ * recargaba la pagina a media sesion no se perdia. Ahora vive en el
+ * servidor (ver features/entreno/sesionDraft.ts, sobre
+ * /api/v2/salaz/workout-session-draft/), para que lo mismo valga si el
+ * telefono se apaga y se retoma desde el PC. Este fichero se queda solo con
+ * los tipos: son el contrato de lo que viaja como `content` en ese endpoint.
  */
 
 export type SerieProgreso = {
@@ -32,32 +35,4 @@ export type SesionProgreso = {
   ejercicios: EjercicioProgreso[]
   /** id del workoutsession ya creado en el backend, o null si "Terminar" aun no se ha pulsado con exito. */
   sesionId: string | null
-}
-
-const PREFIX = 'salaz.sesion.'
-
-function key(routineId: number, fecha: string): string {
-  return `${PREFIX}${routineId}.${fecha}`
-}
-
-export function leerProgreso(routineId: number, fecha: string): SesionProgreso | null {
-  try {
-    const raw = localStorage.getItem(key(routineId, fecha))
-    if (!raw) return null
-    return JSON.parse(raw) as SesionProgreso
-  } catch {
-    return null
-  }
-}
-
-export function guardarProgreso(progreso: SesionProgreso): void {
-  try {
-    localStorage.setItem(key(progreso.routineId, progreso.fecha), JSON.stringify(progreso))
-  } catch {
-    /* almacenamiento lleno o bloqueado: no es motivo para romper la sesion */
-  }
-}
-
-export function borrarProgreso(routineId: number, fecha: string): void {
-  localStorage.removeItem(key(routineId, fecha))
 }

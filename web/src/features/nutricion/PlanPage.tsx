@@ -28,8 +28,8 @@ import { int } from '../../lib/format'
 
 const PRESETS = [
   { id: 'normal', label: 'Normal', protein: 30, carbs: 40, fat: 30 },
-  { id: 'alta-proteina', label: 'Alto en proteina', protein: 40, carbs: 30, fat: 30 },
-  { id: 'definicion', label: 'Definicion', protein: 35, carbs: 35, fat: 30 },
+  { id: 'alta-proteina', label: 'Alto en proteína', protein: 40, carbs: 30, fat: 30 },
+  { id: 'definicion', label: 'Definición', protein: 35, carbs: 35, fat: 30 },
   { id: 'volumen', label: 'Volumen', protein: 25, carbs: 50, fat: 25 },
 ] as const
 
@@ -245,8 +245,8 @@ export default function PlanPage() {
     return (
       <EmptyState
         icon={Apple}
-        title="Todavia no tienes un plan nutricional"
-        description="Crea uno de registro para poder fijar tus objetivos de calorias y macros."
+        title="Todavía no tienes un plan nutricional"
+        description="Crea uno de registro para poder fijar tus objetivos de calorías y macros."
         action={{
           label: crearPlan.isPending ? 'Creando...' : 'Crear plan',
           onClick: () => crearPlan.mutate(),
@@ -309,17 +309,17 @@ export default function PlanPage() {
           ))}
         </ul>
         {duplicarPlan.isError ? (
-          <p className="mt-3 text-sm text-danger">No se pudo duplicar el plan. Intentalo de nuevo.</p>
+          <p className="mt-3 text-sm text-danger">No se pudo duplicar el plan. Inténtalo de nuevo.</p>
         ) : null}
       </Card>
 
       {plan.data ? (
         <>
           <Card>
-            <SectionLabel>Calorias y fibra</SectionLabel>
+            <SectionLabel>Calorías y fibra</SectionLabel>
             <div className="grid grid-cols-2 gap-3">
               <Field
-                label="Calorias objetivo (kcal)"
+                label="Calorías objetivo (kcal)"
                 type="number"
                 inputMode="decimal"
                 min={0}
@@ -349,7 +349,7 @@ export default function PlanPage() {
 
             <div className="grid grid-cols-3 gap-3">
               <Field
-                label="Proteina (%)"
+                label="Proteína (%)"
                 type="number"
                 inputMode="decimal"
                 min={0}
@@ -392,7 +392,7 @@ export default function PlanPage() {
             <p className="text-center text-sm text-success">Objetivos guardados.</p>
           ) : null}
           {actualizar.isError ? (
-            <p className="text-center text-sm text-danger">No se pudo guardar. Intentalo de nuevo.</p>
+            <p className="text-center text-sm text-danger">No se pudo guardar. Inténtalo de nuevo.</p>
           ) : null}
 
           <Card>
@@ -415,7 +415,7 @@ export default function PlanPage() {
             )}
             <p className="mt-3 text-xs text-fg-subtle">
               Al borrar una comida, sus registros del diario no se pierden: se quedan sin agrupar. Si
-              era una de las cuatro comidas fijas, se vuelve a crear vacia la proxima vez que abras el
+              era una de las cuatro comidas fijas, se vuelve a crear vacía la próxima vez que abras el
               Diario.
             </p>
           </Card>
@@ -429,7 +429,7 @@ export default function PlanPage() {
           if (planAEliminar) eliminarPlan.mutate(planAEliminar.id)
         }}
         title={`Eliminar "${planAEliminar?.description || 'plan'}"`}
-        description="Se borraran tambien sus comidas y TODO el registro diario asociado a este plan. Esta accion no se puede deshacer."
+        description="Se borrarán también sus comidas y TODO el registro diario asociado a este plan. Esta acción no se puede deshacer."
         confirmLabel="Eliminar plan"
       />
 

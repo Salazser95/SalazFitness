@@ -2,8 +2,7 @@ import { useState } from 'react'
 
 import { Button, Modal } from '../../../components/ui'
 import { shortDate, today } from '../../../lib/format'
-import { useActualizarRutina, type Routine } from '../api'
-import { escribirRutinaActivaId } from '../local'
+import { escribirRutinaActivaId, useActualizarRutina, type Routine } from '../api'
 
 /** Misma duracion que la original, pero empezando en `nuevoInicio`. */
 function finPorDuracion(start: string, end: string, nuevoInicio: string): string {
@@ -50,7 +49,7 @@ export function ActivarRutinaModal({
     try {
       const nuevoFin = finPorDuracion(routine.start, routine.end, nuevoInicio)
       await actualizar.mutateAsync({ start: nuevoInicio, end: nuevoFin })
-      escribirRutinaActivaId(routine.id)
+      void escribirRutinaActivaId(routine.id)
       onClose()
     } catch {
       setError('No se han podido cambiar las fechas. Prueba otra vez.')
@@ -64,7 +63,7 @@ export function ActivarRutinaModal({
           <p className="text-sm text-fg-muted">
             "{routine.name}" ya es tu rutina activa, pero sus fechas ({shortDate(routine.start)} -{' '}
             {shortDate(routine.end)}) no cubren hoy. Puedes desplazarlas para poder entrenar, o
-            dejarlas como estan.
+            dejarlas como están.
           </p>
           {error ? <p className="mt-2 text-sm text-danger">{error}</p> : null}
           <div className="mt-5 space-y-2">
@@ -77,10 +76,10 @@ export function ActivarRutinaModal({
               disabled={actualizar.isPending}
               onClick={() => void desplazar(proximoLunes(today()))}
             >
-              Empezar el proximo lunes
+              Empezar el próximo lunes
             </Button>
             <Button full variant="ghost" onClick={onClose} disabled={actualizar.isPending}>
-              Dejar las fechas como estan
+              Dejar las fechas como están
             </Button>
           </div>
         </>

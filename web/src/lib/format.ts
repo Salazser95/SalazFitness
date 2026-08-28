@@ -41,3 +41,26 @@ export function today(): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
+
+/**
+ * Suma (o resta, con delta negativo) dias a una fecha YYYY-MM-DD, en hora
+ * local. Construye el Date con año/mes/dia sueltos (no parseando el ISO
+ * completo) para no pasar por UTC: `new Date('2026-08-25')` interpretaria
+ * medianoche UTC, que en cualquier huso horario negativo cae en el dia
+ * anterior una vez formateado en local.
+ */
+export function addDays(iso: string, delta: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const fecha = new Date(y, m - 1, d)
+  fecha.setDate(fecha.getDate() + delta)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${fecha.getFullYear()}-${p(fecha.getMonth() + 1)}-${p(fecha.getDate())}`
+}
+
+/** Fecha ISO a "Lunes 25 de agosto" (mismo problema de huso que addDays, mismo arreglo). */
+export function longDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const fecha = new Date(y, m - 1, d)
+  const s = fecha.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}

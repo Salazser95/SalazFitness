@@ -33,7 +33,7 @@ function RecetaFila({ recipe }: { recipe: Recipe }) {
         </div>
         {coste.data ? (
           <p className="mt-2 text-sm text-fg-muted">
-            {int(coste.data.macros_per_serving.energy)} kcal · {num(coste.data.macros_per_serving.protein)} g proteina ·{' '}
+            {int(coste.data.macros_per_serving.energy)} kcal · {num(coste.data.macros_per_serving.protein)} g proteína ·{' '}
             {num(coste.data.macros_per_serving.carbohydrates)} g hidratos · {num(coste.data.macros_per_serving.fat)} g grasa
           </p>
         ) : null}
@@ -56,7 +56,7 @@ export default function RecetasPage() {
       ) : household.isError || recetas.isError ? (
         <ErrorState onRetry={() => recetas.refetch()} />
       ) : (recetas.data ?? []).length === 0 ? (
-        <EmptyState icon={ChefHat} title="Sin recetas todavia" description="Las recetas del hogar apareceran aqui." />
+        <EmptyState icon={ChefHat} title="Sin recetas todavía" description="Las recetas del hogar aparecerán aquí." />
       ) : (
         <ul className="space-y-3">
           {(recetas.data ?? []).map((r) => (

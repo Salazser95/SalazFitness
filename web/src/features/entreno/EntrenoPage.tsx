@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom'
 import RutinasListaPage from './RutinasListaPage'
 import SesionPage from './SesionPage'
 import HistorialPage from './HistorialPage'
+import EntrenoDiaPage from './EntrenoDiaPage'
 import RutinaDetallePage from './RutinaDetallePage'
 import RutinaFormPage from './RutinaFormPage'
 import ImportarPlantillaPage from './ImportarPlantillaPage'
@@ -23,6 +24,7 @@ export default function EntrenoPage() {
     <Routes>
       <Route index element={<RutinasListaPage />} />
       <Route path="sesion" element={<SesionPage />} />
+      <Route path="calendario" element={<EntrenoDiaPage />} />
       <Route path="historial" element={<HistorialPage />} />
       <Route path="importar-plantilla" element={<ImportarPlantillaPage />} />
       <Route path="rutina/nueva" element={<RutinaFormPage />} />

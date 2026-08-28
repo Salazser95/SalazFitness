@@ -22,6 +22,7 @@ compras pequenas con su fecha.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -216,6 +217,10 @@ def generar_lista(
         perfil = frescura.perfil_para(producto.nombre)
         plan = frescura.planificar_compra(days, perfil, congelar=congelar)
         precio_100g = _precio_por_100g(household.id, producto.ingredient_id)
+        # Una clave por PRODUCTO, compartida por todas sus tandas: es lo que
+        # permite "quitar este producto de toda la lista" de una vez, sin
+        # comparar nombres (ver la nota de group_key en el modelo).
+        grupo = str(uuid.uuid4())
 
         for tanda in plan.tandas:
             gramos = (producto.gramos_dia * tanda.dias_cubiertos).quantize(
@@ -231,6 +236,7 @@ def generar_lista(
             lineas.append(
                 ShoppingListItem(
                     shopping_list=lista,
+                    group_key=grupo,
                     ingredient_id=producto.ingredient_id,
                     name=producto.nombre,
                     amount=gramos,

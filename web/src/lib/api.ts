@@ -103,7 +103,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       return request<T>(path, { ...options, _retried: true })
     }
     notifySessionExpired()
-    throw new ApiError(res.status, null, 'Sesion caducada')
+    throw new ApiError(res.status, null, 'Sesión caducada')
   }
 
   if (!res.ok) {
@@ -171,7 +171,7 @@ export async function login(username: string, password: string): Promise<LoginRe
   })
 
   if (!res.ok) {
-    let detail = 'Usuario o contrasena incorrectos'
+    let detail = 'Usuario o contraseña incorrectos'
     try {
       const j = (await res.json()) as { errors?: { message?: string }[] }
       if (j.errors?.[0]?.message) detail = j.errors[0].message

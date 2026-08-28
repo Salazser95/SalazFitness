@@ -243,6 +243,10 @@ function lineaEjemplo(parcial: Omit<ShoppingListItem, keyof CamposFrescura> & Pa
     freeze_on_arrival: false,
     source: '',
     note: '',
+    // Igual que el backend (ver _nueva_clave_grupo en el modelo): sin uno
+    // explicito, cada linea de ejemplo nace con su propio grupo de una sola
+    // linea.
+    group_key: crypto.randomUUID(),
     ...parcial,
   }
 }
@@ -257,6 +261,7 @@ type CamposFrescura = Pick<
   | 'freeze_on_arrival'
   | 'source'
   | 'note'
+  | 'group_key'
 >
 
 export function useHousehold() {
@@ -1032,6 +1037,87 @@ export function useEliminarLineaLista() {
     },
     onSuccess: ({ shopping_list }) => {
       qc.invalidateQueries({ queryKey: claves.shoppingListItems(shopping_list) })
+    },
+  })
+}
+
+/**
+ * Borra la lista de la compra entera, con todas sus lineas. No hay hook
+ * equivalente hasta ahora (ver encargo): sin esto, una lista generada por
+ * error se queda de "activa" para siempre porque useListaActiva siempre coge
+ * la mas reciente.
+ *
+ * Al invalidar claves.shoppingList(household), useListaActiva vuelve a pedir
+ * la lista mas reciente y automaticamente cae en la anterior (o en null si
+ * no queda ninguna): no hace falta logica extra para "la lista activa pasa a
+ * ser la anterior".
+ */
+export function useEliminarLista() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/shopping-list/${input.id}/`)
+        return input
+      }
+      const idx = almacen.shoppingLists.findIndex((l) => l.id === input.id)
+      if (idx >= 0) almacen.shoppingLists.splice(idx, 1)
+      for (let i = almacen.shoppingListItems.length - 1; i >= 0; i--) {
+        if (almacen.shoppingListItems[i]!.shopping_list === input.id) almacen.shoppingListItems.splice(i, 1)
+      }
+      return retraso(input)
+    },
+    onSuccess: ({ id, household }) => {
+      qc.removeQueries({ queryKey: claves.shoppingListItems(id) })
+      qc.invalidateQueries({ queryKey: claves.shoppingList(household) })
+      qc.invalidateQueries({ queryKey: ['compra', 'cobertura'] })
+    },
+  })
+}
+
+/**
+ * Quita un producto de TODA la lista, no solo la fila que se pulso. Hace
+ * falta porque desde que la compra se reparte en tandas (ver
+ * backend/salaz/frescura.py) un mismo producto puede tener una linea por
+ * tanda: borrar una sola no lo quita del todo.
+ *
+ * El backend no tiene un endpoint bulk para esto, asi que se borra cada
+ * linea por separado (mismo patron que useCrearCompra con varias lineas) y
+ * solo se invalida una vez, al final.
+ */
+/**
+ * Quita un producto de TODA la lista, no solo la fila que se pulso: todas sus
+ * tandas de una vez. Hace falta porque desde que la compra se reparte en
+ * tandas (ver backend/salaz/frescura.py) un mismo producto puede tener una
+ * linea por tanda, y borrar una sola no lo quita del todo.
+ *
+ * Una unica peticion DELETE atomica al backend (por-grupo), no N peticiones
+ * en paralelo: si el movil pierde la conexion a mitad, con N peticiones
+ * sueltas el producto quedaria a medio borrar en unas tandas si y en otras
+ * no. Con la transaccion del backend, o se borra entero o no se borra nada.
+ * El agrupado usa `group_key` (asignado por el servidor), nunca el nombre:
+ * dos productos de texto libre con el mismo nombre en la misma lista no son
+ * necesariamente el mismo producto.
+ */
+export function useEliminarProductoLista() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { groupKey: string; shopping_list: number }) => {
+      if (BACKEND_LISTO) {
+        return api.del<{ shopping_list: number; deleted: number }>(
+          `${BASE}/shopping-list-item/by-group/${input.groupKey}/`,
+        )
+      }
+      const idx = almacen.shoppingListItems.filter((i) => i.group_key === input.groupKey)
+      for (const item of idx) {
+        const i = almacen.shoppingListItems.findIndex((x) => x.id === item.id)
+        if (i >= 0) almacen.shoppingListItems.splice(i, 1)
+      }
+      return retraso({ shopping_list: input.shopping_list, deleted: idx.length })
+    },
+    onSuccess: ({ shopping_list }) => {
+      qc.invalidateQueries({ queryKey: claves.shoppingListItems(shopping_list) })
+      qc.invalidateQueries({ queryKey: ['compra', 'cobertura'] })
     },
   })
 }

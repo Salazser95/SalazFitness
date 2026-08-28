@@ -1,8 +1,23 @@
+import uuid
+
 from django.db import models
 
 from salaz import frescura
 from salaz.models.ingredient_price import IngredientPrice
 from wger.nutrition.models import Ingredient
+
+
+def _nueva_clave_grupo() -> str:
+    """Identificador de grupo para una linea recien creada.
+
+    Se llama una vez por cada `ShoppingListItem(...)` construido en Python sin
+    pasarle `group_key` explicito (el `default=` de un campo de Django se
+    evalua por instancia, no una sola vez para todas). Por eso una linea suelta
+    creada a mano en la app siempre nace con su propio grupo de una sola linea,
+    y solo `generador_lista.generar_lista()` la sobreescribe a proposito para
+    que las tandas de un mismo producto compartan grupo.
+    """
+    return str(uuid.uuid4())
 
 
 class ShoppingListItem(models.Model):
@@ -26,6 +41,19 @@ class ShoppingListItem(models.Model):
     estimated_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     purchased = models.BooleanField(default=False)
     supermarket = models.CharField(max_length=200, blank=True, default='')
+
+    # Identifica "el mismo producto" a traves de sus varias tandas de compra,
+    # para poder quitarlo de la lista entera de una vez sin depender de
+    # comparar nombres (fragil: dos productos de texto libre con el mismo
+    # nombre en la misma lista no son necesariamente la misma cosa que
+    # comprar). No es la clave primaria porque varias filas (una por tanda)
+    # comparten el mismo group_key a proposito.
+    group_key = models.CharField(
+        max_length=36,
+        default=_nueva_clave_grupo,
+        editable=False,
+        db_index=True,
+    )
 
     # ------------------------------------------------------------ frescura
     # Una lista de 12 dias no es una sola compra: lo seco se compra una vez y

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Apple, ChevronLeft, ChevronRight, Copy, GlassWater, Plus, Trash2, UtensilsCrossed } from 'lucide-react'
 
@@ -22,7 +22,7 @@ import {
 import type { DiaryEntry, Ingredient, Macros, MealName } from './api'
 import type { CoberturaComida } from '../compra/tipos'
 import { EtiquetaCompra, useEstadoCompraPorComida } from './EstadoCompra'
-import { AGUA_OBJETIVO_ML_DEFECTO, AGUA_VASO_ML, escribirAgua, leerAgua } from './local'
+import { AGUA_OBJETIVO_ML_DEFECTO, AGUA_VASO_ML, useAgua, useEscribirAgua } from './local'
 import { int, num, shortDate, today } from '../../lib/format'
 
 const MACRO_COLOR: Record<'protein' | 'carbohydrates' | 'fat', string> = {
@@ -32,7 +32,7 @@ const MACRO_COLOR: Record<'protein' | 'carbohydrates' | 'fat', string> = {
 }
 
 const MACRO_LABEL: Record<'protein' | 'carbohydrates' | 'fat', string> = {
-  protein: 'Proteina',
+  protein: 'Proteína',
   carbohydrates: 'Hidratos',
   fat: 'Grasa',
 }
@@ -64,7 +64,7 @@ function SelectorFecha({
       <button
         type="button"
         className="rounded-[10px] p-2 text-fg-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
-        aria-label="Dia anterior"
+        aria-label="Día anterior"
         onClick={() => onCambiar(sumarDias(fecha, -1))}
       >
         <ChevronLeft size={20} aria-hidden="true" />
@@ -88,7 +88,7 @@ function SelectorFecha({
       <button
         type="button"
         className="rounded-[10px] p-2 text-fg-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
-        aria-label="Dia siguiente"
+        aria-label="Día siguiente"
         onClick={() => onCambiar(sumarDias(fecha, 1))}
       >
         <ChevronRight size={20} aria-hidden="true" />
@@ -107,7 +107,7 @@ function BotonCopiarDia({ planId, fecha }: { planId: string | undefined; fecha: 
     copiar.mutate(anterior, {
       onSuccess: (cantidad) => {
         setMensaje(
-          cantidad > 0 ? `Copiados ${cantidad} alimentos.` : 'El dia anterior no tiene registros.',
+          cantidad > 0 ? `Copiados ${cantidad} alimentos.` : 'El día anterior no tiene registros.',
         )
       },
     })
@@ -120,12 +120,12 @@ function BotonCopiarDia({ planId, fecha }: { planId: string | undefined; fecha: 
         {copiar.isPending
           ? 'Copiando...'
           : fecha === today()
-            ? 'Copiar el dia de ayer'
-            : 'Copiar el dia anterior'}
+            ? 'Copiar el día de ayer'
+            : 'Copiar el día anterior'}
       </Button>
       {mensaje ? <p className="text-xs text-fg-subtle">{mensaje}</p> : null}
       {copiar.isError ? (
-        <p className="text-xs text-danger">No se pudo copiar. Intentalo de nuevo.</p>
+        <p className="text-xs text-danger">No se pudo copiar. Inténtalo de nuevo.</p>
       ) : null}
     </div>
   )
@@ -152,7 +152,7 @@ function TarjetaRecetaDelDia({ fecha }: { fecha: string }) {
         </div>
         <Button size="sm" onClick={() => setAbierto(true)}>
           <UtensilsCrossed size={16} aria-hidden="true" />
-          {fecha === today() ? 'Anotar la receta de hoy' : 'Anotar la receta de este dia'}
+          {fecha === today() ? 'Anotar la receta de hoy' : 'Anotar la receta de este día'}
         </Button>
       </Card>
       <AnotarRecetaModal recipeId={asignacion.recipeId} open={abierto} onClose={() => setAbierto(false)} fecha={fecha} />
@@ -237,11 +237,11 @@ function SeccionComida({
         </div>
         <Button variant="ghost" size="sm" onClick={onAgregar} disabled={!mealId}>
           <Plus size={16} aria-hidden="true" />
-          Anadir
+          Añadir
         </Button>
       </div>
       {items.length === 0 ? (
-        <p className="py-2 text-sm text-fg-subtle">Sin alimentos todavia.</p>
+        <p className="py-2 text-sm text-fg-subtle">Sin alimentos todavía.</p>
       ) : (
         <ul className="space-y-2">
           {items.map((item) => (
@@ -254,14 +254,14 @@ function SeccionComida({
 }
 
 function TarjetaAgua({ fecha }: { fecha: string }) {
-  const [aguaMl, setAguaMl] = useState(0)
-
-  useEffect(() => {
-    setAguaMl(leerAgua(fecha))
-  }, [fecha])
+  // Del servidor (ver salaz/models/water_log.py): antes vivia en
+  // localStorage y por eso no se veia igual en el PC y en el iPhone.
+  const agua = useAgua(fecha)
+  const escribir = useEscribirAgua(fecha)
+  const aguaMl = agua.data ?? 0
 
   function cambiar(delta: number) {
-    setAguaMl(escribirAgua(fecha, aguaMl + delta))
+    escribir.mutate(Math.max(0, aguaMl + delta))
   }
 
   const pct = Math.min(100, (aguaMl / AGUA_OBJETIVO_ML_DEFECTO) * 100)
@@ -291,6 +291,9 @@ function TarjetaAgua({ fecha }: { fecha: string }) {
           +1 vaso (250 ml)
         </Button>
       </div>
+      {escribir.isError ? (
+        <p className="mt-2 text-sm text-danger">No se pudo guardar. Inténtalo de nuevo.</p>
+      ) : null}
     </Card>
   )
 }
@@ -319,8 +322,8 @@ export default function DiarioPage() {
     return (
       <EmptyState
         icon={Apple}
-        title="Todavia no tienes un plan nutricional"
-        description="Crea uno de registro para empezar a apuntar lo que comes. Los objetivos parten de tus calorias de perfil y se pueden ajustar despues en Objetivos."
+        title="Todavía no tienes un plan nutricional"
+        description="Crea uno de registro para empezar a apuntar lo que comes. Los objetivos parten de tus calorías de perfil y se pueden ajustar después en Objetivos."
         action={{
           label: crearPlan.isPending ? 'Creando...' : 'Crear plan',
           onClick: () => crearPlan.mutate(),
@@ -355,7 +358,7 @@ export default function DiarioPage() {
 
       <Card className="text-center">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">
-          Calorias de hoy
+          Calorías de hoy
         </p>
         <p className="font-display text-6xl leading-none tnum text-fg">
           {int(totalDia.energy)}

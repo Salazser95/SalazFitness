@@ -220,7 +220,7 @@ export default function RecetaFormulario() {
             <RecetaIlustracion className="aspect-video" iconSize={40} />
           )}
           {subirFoto.isError ? (
-            <p className="text-sm text-danger">No se ha podido subir la foto. Intentalo de nuevo.</p>
+            <p className="text-sm text-danger">No se ha podido subir la foto. Inténtalo de nuevo.</p>
           ) : null}
         </Card>
 
@@ -258,7 +258,7 @@ export default function RecetaFormulario() {
               onClick={() => setIngredientes((p) => [...p, nuevoIngrediente()])}
             >
               <Plus size={16} aria-hidden="true" />
-              Anadir ingrediente
+              Añadir ingrediente
             </Button>
           </div>
 

@@ -4,7 +4,10 @@ import type { UseQueryResult } from '@tanstack/react-query'
 
 import { api, fetchAll } from '../../lib/api'
 import { today } from '../../lib/format'
-import { useRutinaActivaId } from './local'
+import {
+  escribirEstadoDispositivo,
+  useEstadoDispositivo,
+} from '../../lib/syncDispositivo'
 
 /**
  * Capa de datos de entrenamiento contra la API de wger.
@@ -119,13 +122,32 @@ export function pickActiveRoutine(routines: Routine[]): Routine | null {
   return [...activas].sort((a, b) => (a.start < b.start ? 1 : -1))[0]
 }
 
+// wger no tiene concepto de "rutina activa elegida por el usuario": el
+// comportamiento por defecto (pickActiveRoutine, arriba) elige por fechas, lo
+// que obligaba a duplicar una rutina solo para que sus fechas cubrieran hoy.
+// Esta preferencia guarda la eleccion explicita, que gana sobre el calculo
+// por fechas si la rutina todavia existe. Vive en el servidor (ver
+// lib/syncDispositivo.ts): antes estaba en localStorage y por eso elegirla en
+// el iPhone no se notaba en el PC.
+const CLAVE_RUTINA_ACTIVA = 'rutina_activa'
+
+function useRutinaActivaId(): number | null {
+  const valor = useEstadoDispositivo(CLAVE_RUTINA_ACTIVA)
+  if (valor === null) return null
+  const n = Number(valor)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Marca una rutina como activa a mano. `null` vuelve a elegirse por fechas. */
+export function escribirRutinaActivaId(id: number | null): Promise<void> {
+  return escribirEstadoDispositivo(CLAVE_RUTINA_ACTIVA, id === null ? null : String(id))
+}
+
 /**
  * La rutina activa "de verdad": la elegida a mano por el usuario (boton
- * Activar, guardada en localStorage) si todavia existe entre sus rutinas; si
- * no hay eleccion guardada, o esa rutina ya no existe, cae en el calculo por
- * fechas de `pickActiveRoutine` (comportamiento de siempre). Usa
- * `useRutinaActivaId` (useSyncExternalStore) para reaccionar al cambio sin
- * recargar la pagina, igual que `usePlan` en features/nutricion/api.ts.
+ * Activar) si todavia existe entre sus rutinas; si no hay eleccion guardada,
+ * o esa rutina ya no existe, cae en el calculo por fechas de
+ * `pickActiveRoutine` (comportamiento de siempre).
  */
 export function useActiveRoutine(): {
   data: Routine | null | undefined

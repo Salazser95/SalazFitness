@@ -44,6 +44,16 @@ router.register(
     basename='salaz-recent-ingredient',
 )
 router.register(
+    r'salaz/workout-reschedule',
+    views.WorkoutRescheduleViewSet,
+    basename='salaz-workout-reschedule',
+)
+router.register(
+    r'salaz/workout-day-skip',
+    views.WorkoutDaySkipViewSet,
+    basename='salaz-workout-day-skip',
+)
+router.register(
     r'salaz/workout-session-draft',
     views.WorkoutSessionDraftViewSet,
     basename='salaz-workout-session-draft',

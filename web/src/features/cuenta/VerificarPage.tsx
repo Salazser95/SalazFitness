@@ -33,7 +33,7 @@ export default function VerificarPage() {
     return (
       <Marco icono={<MailWarning size={26} aria-hidden="true" />} titulo="Enlace incompleto">
         <p className="text-sm text-fg-muted">
-          Este enlace no trae el codigo de confirmacion. Abre el que te llego por correo tal cual,
+          Este enlace no trae el código de confirmación. Abre el que te llegó por correo tal cual,
           sin recortarlo.
         </p>
         <Volver />

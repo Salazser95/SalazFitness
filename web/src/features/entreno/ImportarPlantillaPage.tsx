@@ -84,8 +84,8 @@ function ModalImportar({
         </div>
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         <p className="text-xs text-fg-subtle">
-          Se copian todos los dias, ejercicios y series de la plantilla a una rutina propia, una
-          peticion por cada uno: en plantillas largas puede tardar cerca de un minuto. No cierres
+          Se copian todos los días, ejercicios y series de la plantilla a una rutina propia, una
+          petición por cada uno: en plantillas largas puede tardar cerca de un minuto. No cierres
           esta pantalla mientras dure.
         </p>
         <Button type="submit" full disabled={importar.isPending}>
@@ -118,7 +118,7 @@ export default function ImportarPlantillaPage() {
 
       {plantillas.isError ? (
         <ErrorState
-          message="No se han podido cargar las plantillas publicas."
+          message="No se han podido cargar las plantillas públicas."
           onRetry={() => void plantillas.refetch()}
         />
       ) : null}
@@ -126,8 +126,8 @@ export default function ImportarPlantillaPage() {
       {plantillas.data && plantillas.data.length === 0 ? (
         <EmptyState
           icon={LayoutTemplate}
-          title="No hay plantillas publicas todavia"
-          description="Cuando la comunidad de wger publique rutinas como plantilla, apareceran aqui para poder importarlas."
+          title="No hay plantillas públicas todavía"
+          description="Cuando la comunidad de wger publique rutinas como plantilla, aparecerán aquí para poder importarlas."
         />
       ) : null}
 

@@ -58,7 +58,7 @@ function EscanerCodigoBarras({
     const Detector = obtenerBarcodeDetector()
 
     if (!Detector) {
-      setError('El escaner no esta disponible en este navegador.')
+      setError('El escáner no está disponible en este navegador.')
       return
     }
     const detector = new Detector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] })
@@ -85,7 +85,7 @@ function EscanerCodigoBarras({
         await videoRef.current.play()
         void bucle()
       } catch {
-        setError('No se pudo acceder a la camara.')
+        setError('No se pudo acceder a la cámara.')
       }
     }
 
@@ -100,7 +100,7 @@ function EscanerCodigoBarras({
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/90 p-4">
       <video ref={videoRef} className="max-h-[70vh] w-full max-w-md rounded-[20px] object-cover" muted playsInline />
-      <p className="text-sm text-fg-muted">{error ?? 'Apunta al codigo de barras del producto.'}</p>
+      <p className="text-sm text-fg-muted">{error ?? 'Apunta al código de barras del producto.'}</p>
       <Button variant="secondary" onClick={onCerrar}>
         Cerrar
       </Button>
@@ -131,7 +131,7 @@ function ListaAlimentos({
             <span className="min-w-0">
               <span className="block truncate text-sm text-fg">{a.name}</span>
               <span className="block truncate text-xs text-fg-subtle">
-                {a.brand ?? 'Generico'} · {int(a.energy)} kcal/100 g
+                {a.brand ?? 'Genérico'} · {int(a.energy)} kcal/100 g
               </span>
             </span>
             {favoritosIds.has(a.id) ? (
@@ -194,7 +194,7 @@ function HojaAlimento({
             <button
               type="button"
               className={`rounded-[10px] p-2 transition-colors duration-150 hover:bg-surface-2 ${esFavorito ? 'text-primary' : 'text-fg-subtle'}`}
-              aria-label={esFavorito ? 'Quitar de favoritos' : 'Anadir a favoritos'}
+              aria-label={esFavorito ? 'Quitar de favoritos' : 'Añadir a favoritos'}
               onClick={onFavorito}
             >
               <Star size={18} aria-hidden="true" fill={esFavorito ? 'currentColor' : 'none'} />
@@ -270,7 +270,7 @@ function HojaAlimento({
           disabled={!mealId || gramos <= 0 || anadiendo}
           onClick={onAnadir}
         >
-          {anadiendo ? 'Anadiendo...' : 'Anadir al diario'}
+          {anadiendo ? 'Añadiendo...' : 'Añadir al diario'}
         </Button>
       </Card>
     </div>
@@ -332,7 +332,7 @@ export default function BuscarPage() {
     porCodigo.mutate(codigo, {
       onSuccess: (ing) => {
         if (ing) abrirSheet(ing)
-        else setErrorCodigo(`No se encontro ningun alimento con el codigo ${codigo}.`)
+        else setErrorCodigo(`No se encontró ningún alimento con el código ${codigo}.`)
       },
     })
   }
@@ -397,7 +397,7 @@ export default function BuscarPage() {
               <button
                 type="button"
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-fg"
-                aria-label="Escanear codigo de barras"
+                aria-label="Escanear código de barras"
                 onClick={() => setEscanerAbierto(true)}
               >
                 <ScanBarcode size={18} aria-hidden="true" />
@@ -424,7 +424,7 @@ export default function BuscarPage() {
           <EmptyState
             icon={Clock}
             title="Sin alimentos recientes"
-            description="Lo que registres en el diario aparecera aqui para anadirlo mas rapido la proxima vez."
+            description="Lo que registres en el diario aparecerá aquí para añadirlo más rápido la próxima vez."
           />
         ) : (
           <ListaAlimentos alimentos={recientes} favoritosIds={favoritosIds} onElegir={abrirSheet} />
