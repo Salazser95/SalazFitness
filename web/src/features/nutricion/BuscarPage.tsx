@@ -7,9 +7,8 @@ import { AnotarRecetaModal } from '../compra/componentes/AnotarRecetaModal'
 import { useHousehold, useRecipes } from '../compra/datos'
 import type { Recipe } from '../compra/tipos'
 import {
-  MEAL_NAMES,
+  comidasOrdenadas,
   macrosFor,
-  mapaComidas,
   useAgregarAlimento,
   useAsegurarComidas,
   useBuscarIngredientes,
@@ -340,19 +339,15 @@ export default function BuscarPage() {
   const plan = usePlan()
   const planInfo = usePlanInfo(plan.data?.id)
   useAsegurarComidas(planInfo.data)
-  const comidas = mapaComidas(planInfo.data)
   const agregar = useAgregarAlimento(plan.data?.id, fecha)
 
   const household = useHousehold()
   const recetas = useRecipes(household.data?.id ?? 0)
 
   const mealOptions = useMemo(
-    () => MEAL_NAMES.flatMap((n) => { const m = comidas.get(n); return m ? [{ id: m.id, nombre: n }] : [] }),
-    [comidas],
+    () => comidasOrdenadas(planInfo.data).map((m) => ({ id: m.id, nombre: m.name })),
+    [planInfo.data],
   )
-  // Nombre de la comida que se estaba editando al llegar aqui (?meal=), para
-  // preseleccionarla en el modal de anotar receta.
-  const comidaInicial = mealOptions.find((m) => m.id === mealParam)?.nombre
   const mealId = mealIdManual ?? mealParam ?? mealOptions[0]?.id ?? ''
 
   const favoritosIds = useMemo(() => new Set(favoritos.map((f) => f.id)), [favoritos])
@@ -517,7 +512,7 @@ export default function BuscarPage() {
           recipeId={recetaSeleccionada.id}
           open
           fecha={fecha}
-          comidaInicial={comidaInicial}
+          mealIdInicial={mealParam ?? undefined}
           onClose={() => {
             setRecetaSeleccionada(null)
             navigate(-1)

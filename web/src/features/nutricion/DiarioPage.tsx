@@ -6,9 +6,8 @@ import { Button, Card, EmptyState, ErrorState, SectionLabel, SkeletonList } from
 import { AnotarRecetaModal } from '../compra/componentes/AnotarRecetaModal'
 import { recetaDelDia, usePlanSemana } from '../compra/planLocal'
 import {
-  MEAL_NAMES,
+  comidasOrdenadas,
   macrosFor,
-  mapaComidas,
   sumMacros,
   useAsegurarComidas,
   useCopiarDia,
@@ -19,7 +18,7 @@ import {
   usePlan,
   usePlanInfo,
 } from './api'
-import type { DiaryEntry, Ingredient, Macros, MealName } from './api'
+import type { DiaryEntry, Ingredient, Macros } from './api'
 import type { CoberturaComida } from '../compra/tipos'
 import { EtiquetaCompra, useEstadoCompraPorComida } from './EstadoCompra'
 import { AGUA_OBJETIVO_ML_DEFECTO, AGUA_VASO_ML, useAgua, useEscribirAgua } from './local'
@@ -220,7 +219,7 @@ function SeccionComida({
   onAgregar,
   onEliminar,
 }: {
-  nombre: MealName
+  nombre: string
   mealId: string | undefined
   items: EntradaConMacros[]
   /** Si sus alimentos estan comprados. Undefined si no hay lista de la compra. */
@@ -337,7 +336,7 @@ export default function DiarioPage() {
     return <ErrorState onRetry={() => { planInfo.refetch(); diario.refetch() }} />
   }
 
-  const comidas = mapaComidas(planInfo.data)
+  const comidas = comidasOrdenadas(planInfo.data)
   const mapaIngr = ingredientes.data
 
   const entradasConMacros: EntradaConMacros[] = (diario.data ?? []).map((entrada) => {
@@ -377,17 +376,16 @@ export default function DiarioPage() {
         </div>
       </Card>
 
-      {MEAL_NAMES.map((nombre) => {
-        const meal = comidas.get(nombre)
-        const items = entradasConMacros.filter((x) => meal && x.entrada.meal === meal.id)
+      {comidas.map((meal) => {
+        const items = entradasConMacros.filter((x) => x.entrada.meal === meal.id)
         return (
           <SeccionComida
-            key={nombre}
-            nombre={nombre}
-            mealId={meal?.id}
+            key={meal.id}
+            nombre={meal.name}
+            mealId={meal.id}
             items={items}
-            estadoCompra={meal ? estadoCompra?.get(meal.id) : undefined}
-            onAgregar={() => meal && navigate(`/nutricion/buscar?meal=${meal.id}&fecha=${fecha}`)}
+            estadoCompra={estadoCompra?.get(meal.id)}
+            onAgregar={() => navigate(`/nutricion/buscar?meal=${meal.id}&fecha=${fecha}`)}
             onEliminar={(id) => eliminar.mutate(id)}
           />
         )

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Apple, Check, Copy, Pencil, Trash2 } from 'lucide-react'
+import { Apple, Check, Copy, Pencil, Plus, Trash2 } from 'lucide-react'
 
 import {
   Button,
@@ -12,8 +12,10 @@ import {
   SkeletonList,
 } from '../../components/ui'
 import {
+  comidasOrdenadas,
   useActualizarComida,
   useActualizarPlan,
+  useCrearComida,
   useCrearPlan,
   useDuplicarPlan,
   useEliminarComida,
@@ -112,10 +114,13 @@ function FilaPlan({
 
 function FilaComida({
   comida,
+  puedeEliminar,
   onGuardarNombre,
   onEliminar,
 }: {
   comida: MealConItems
+  /** Un plan tiene que tener al menos una comida: se oculta el borrado si es la única. */
+  puedeEliminar: boolean
   onGuardarNombre: (nombre: string) => void
   onEliminar: () => void
 }) {
@@ -177,14 +182,16 @@ function FilaComida({
         >
           <Pencil size={16} aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-danger"
-          aria-label={`Eliminar ${comida.name}`}
-          onClick={onEliminar}
-        >
-          <Trash2 size={16} aria-hidden="true" />
-        </button>
+        {puedeEliminar ? (
+          <button
+            type="button"
+            className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-danger"
+            aria-label={`Eliminar ${comida.name}`}
+            onClick={onEliminar}
+          >
+            <Trash2 size={16} aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
     </li>
   )
@@ -204,9 +211,11 @@ export default function PlanPage() {
   const duplicarPlan = useDuplicarPlan()
   const actualizarComida = useActualizarComida(plan.data?.id)
   const eliminarComida = useEliminarComida(plan.data?.id)
+  const crearComida = useCrearComida(plan.data?.id)
 
   const [energy, setEnergy] = useState(2200)
   const [fiber, setFiber] = useState(30)
+  const [nuevaComida, setNuevaComida] = useState('')
   const [pctProtein, setPctProtein] = useState<number>(PRESETS[0].protein)
   const [pctCarbs, setPctCarbs] = useState<number>(PRESETS[0].carbs)
   const [pctFat, setPctFat] = useState<number>(PRESETS[0].fat)
@@ -279,6 +288,12 @@ export default function PlanPage() {
       goal_carbohydrates: gramosCarbs,
       goal_fat: gramosGrasa,
     })
+  }
+
+  function anadirComida() {
+    const nombre = nuevaComida.trim()
+    if (!nombre) return
+    crearComida.mutate(nombre, { onSuccess: () => setNuevaComida('') })
   }
 
   return (
@@ -403,20 +418,48 @@ export default function PlanPage() {
               <ErrorState onRetry={() => planInfo.refetch()} />
             ) : (
               <ul className="space-y-2">
-                {(planInfo.data?.meals ?? []).map((comida) => (
+                {comidasOrdenadas(planInfo.data).map((comida) => (
                   <FilaComida
                     key={comida.id}
                     comida={comida}
+                    puedeEliminar={(planInfo.data?.meals.length ?? 0) > 1}
                     onGuardarNombre={(name) => actualizarComida.mutate({ id: comida.id, name })}
                     onEliminar={() => setComidaAEliminar(comida)}
                   />
                 ))}
               </ul>
             )}
+
+            <div className="mt-3 flex gap-2">
+              <input
+                className="h-10 min-w-0 flex-1 rounded-[10px] border border-border bg-surface-2 px-3 text-sm text-fg placeholder:text-fg-subtle transition-colors focus:border-primary"
+                placeholder="Nombre de la comida nueva (p. ej. Merienda)"
+                value={nuevaComida}
+                maxLength={25}
+                onChange={(e) => setNuevaComida(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    anadirComida()
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                disabled={!nuevaComida.trim() || crearComida.isPending}
+                onClick={anadirComida}
+              >
+                <Plus size={16} aria-hidden="true" />
+                Añadir
+              </Button>
+            </div>
+            {crearComida.isError ? (
+              <p className="mt-2 text-sm text-danger">No se pudo crear la comida. Inténtalo de nuevo.</p>
+            ) : null}
+
             <p className="mt-3 text-xs text-fg-subtle">
-              Al borrar una comida, sus registros del diario no se pierden: se quedan sin agrupar. Si
-              era una de las cuatro comidas fijas, se vuelve a crear vacía la próxima vez que abras el
-              Diario.
+              Puedes tener las comidas que quieras (3, 4, 5...): añade, renombra o borra según te
+              convenga. Al borrar una, sus registros del diario no se pierden, se quedan sin agrupar.
             </p>
           </Card>
         </>
