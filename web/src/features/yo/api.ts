@@ -152,6 +152,25 @@ export function useAddWeightEntry() {
   })
 }
 
+/** Corrige un pesaje ya guardado (fecha y/o peso mal anotados). */
+export function useUpdateWeightEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, date, weight }: { id: number; date: string; weight: number }) =>
+      api.patch<WeightEntry>(`/api/v2/weightentry/${id}/`, { date, weight }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: yoKeys.weight }),
+  })
+}
+
+/** Quita un pesaje que no debia estar (duplicado, prueba, dato equivocado). */
+export function useDeleteWeightEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del<void>(`/api/v2/weightentry/${id}/`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: yoKeys.weight }),
+  })
+}
+
 // ---------------------------------------------------------- Entrenamiento
 
 export function useWorkoutSessions() {

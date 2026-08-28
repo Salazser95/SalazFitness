@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Camera, Download, LogOut, Plus, Ruler, Scale, Trash2 } from 'lucide-react'
+import { Camera, Check, Download, LogOut, Pencil, Plus, Ruler, Scale, Trash2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { CLAVE_IDIOMA, IDIOMAS_DISPONIBLES } from '../../i18n'
@@ -43,11 +43,13 @@ import {
   useCreateMeasurement,
   useCreateMeasurementCategory,
   useDeleteGalleryPhoto,
+  useDeleteWeightEntry,
   useExerciseNames,
   useGalleryPhotos,
   useMeasurementCategories,
   useMeasurements,
   useUpdateUserProfile,
+  useUpdateWeightEntry,
   useUploadGalleryPhoto,
   useUserProfile,
   useWeightEntries,
@@ -60,6 +62,7 @@ import {
   type Objetivo,
   type TipoObjetivo,
   type UserProfilePatch,
+  type WeightEntry,
 } from './api'
 import { BarraProgreso, SelectField, TabBar, ToggleField, type TabId } from './components'
 import {
@@ -391,9 +394,108 @@ function PerfilTab() {
 
 // ----------------------------------------------------------------- Progreso
 
+/** Una fila del historial de peso: fecha y valor, editables in situ, o borrado con confirmación aparte. */
+function FilaPeso({
+  entrada,
+  onGuardar,
+  onEliminar,
+}: {
+  entrada: WeightEntry
+  onGuardar: (cambios: { date: string; weight: number }) => void
+  onEliminar: () => void
+}) {
+  const [editando, setEditando] = useState(false)
+  // Solo se rellenan al entrar en edicion (ver empezarEdicion): en modo
+  // vista se lee siempre `entrada` directamente, asi que no hace falta un
+  // efecto que las mantenga sincronizadas con datos que aqui no se pintan.
+  const [peso, setPeso] = useState('')
+  const [fecha, setFecha] = useState('')
+
+  function empezarEdicion() {
+    setPeso(entrada.weight)
+    setFecha(entrada.date)
+    setEditando(true)
+  }
+
+  if (editando) {
+    const valorValido = Number(peso) > 0 && fecha !== ''
+    return (
+      <li className="flex flex-wrap items-center gap-2 rounded-[14px] bg-surface-2 px-3 py-2">
+        <input
+          type="date"
+          className="h-10 min-w-0 rounded-[10px] border border-border bg-surface px-2 text-sm text-fg transition-colors focus:border-primary"
+          value={fecha}
+          onChange={(e) => setFecha(e.target.value)}
+        />
+        <input
+          type="number"
+          inputMode="decimal"
+          step="0.1"
+          className="h-10 w-20 min-w-0 rounded-[10px] border border-border bg-surface px-2 text-sm text-fg transition-colors focus:border-primary"
+          value={peso}
+          onChange={(e) => setPeso(e.target.value)}
+        />
+        <span className="text-xs text-fg-subtle">kg</span>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className="rounded-[10px] p-2 text-primary transition-colors duration-150 hover:bg-surface-3 disabled:opacity-40"
+            aria-label="Guardar pesaje"
+            disabled={!valorValido}
+            onClick={() => {
+              onGuardar({ date: fecha, weight: Number(peso) })
+              setEditando(false)
+            }}
+          >
+            <Check size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3"
+            aria-label="Cancelar edición"
+            onClick={() => setEditando(false)}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      </li>
+    )
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-[14px] bg-surface-2 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="tnum text-sm text-fg">{num(Number(entrada.weight))} kg</p>
+        <p className="text-xs capitalize text-fg-subtle">{shortDate(entrada.date)}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-fg"
+          aria-label="Editar pesaje"
+          onClick={empezarEdicion}
+        >
+          <Pencil size={16} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-danger"
+          aria-label="Eliminar pesaje"
+          onClick={onEliminar}
+        >
+          <Trash2 size={16} aria-hidden="true" />
+        </button>
+      </div>
+    </li>
+  )
+}
+
 function ProgresoTab() {
   const pesoQ = useWeightEntries()
   const addPeso = useAddWeightEntry()
+  const actualizarPeso = useUpdateWeightEntry()
+  const eliminarPeso = useDeleteWeightEntry()
+  const [entradaAEliminar, setEntradaAEliminar] = useState<WeightEntry | null>(null)
   const sesionesQ = useWorkoutSessions()
   const logsQ = useWorkoutLogs()
 
@@ -406,6 +508,11 @@ function ProgresoTab() {
     const puntos: PuntoPeso[] = pesoQ.data.map((e) => ({ fecha: e.date, peso: Number(e.weight) }))
     return cortarPorRango(mediaMovil7(puntos), rango)
   }, [pesoQ.data, rango])
+
+  const entradasOrdenadas = useMemo(
+    () => [...(pesoQ.data ?? [])].sort((a, b) => b.date.localeCompare(a.date)),
+    [pesoQ.data],
+  )
 
   const sesionesPorSemana = useMemo(
     () => calcularSesionesSemanales(sesionesQ.data ?? []),
@@ -525,6 +632,25 @@ function ProgresoTab() {
         </form>
       </Card>
 
+      {entradasOrdenadas.length > 0 ? (
+        <Card>
+          <SectionLabel>Historial de peso</SectionLabel>
+          <ul className="max-h-72 space-y-2 overflow-y-auto">
+            {entradasOrdenadas.map((entrada) => (
+              <FilaPeso
+                key={entrada.id}
+                entrada={entrada}
+                onGuardar={(cambios) => actualizarPeso.mutate({ id: entrada.id, ...cambios })}
+                onEliminar={() => setEntradaAEliminar(entrada)}
+              />
+            ))}
+          </ul>
+          {actualizarPeso.isError ? (
+            <p className="mt-2 text-sm text-danger">No se pudo guardar el cambio. Inténtalo de nuevo.</p>
+          ) : null}
+        </Card>
+      ) : null}
+
       <Card>
         <SectionLabel>Entrenamientos por semana</SectionLabel>
         {sesionesQ.isLoading ? <SkeletonList rows={1} height="h-48" /> : null}
@@ -609,6 +735,21 @@ function ProgresoTab() {
       </Card>
 
       <FotosProgreso />
+
+      <ConfirmModal
+        open={entradaAEliminar !== null}
+        onClose={() => setEntradaAEliminar(null)}
+        onConfirm={() => {
+          if (entradaAEliminar) eliminarPeso.mutate(entradaAEliminar.id)
+        }}
+        title="Eliminar pesaje"
+        description={
+          entradaAEliminar
+            ? `Se borra el pesaje de ${num(Number(entradaAEliminar.weight))} kg del ${shortDate(entradaAEliminar.date)}. No se puede deshacer.`
+            : ''
+        }
+        confirmLabel="Eliminar"
+      />
     </div>
   )
 }
