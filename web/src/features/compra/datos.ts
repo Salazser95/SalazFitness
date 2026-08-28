@@ -288,6 +288,52 @@ export function useActualizarReparto() {
   })
 }
 
+export type NuevoMiembro = { household: number; name: string; link_username?: string }
+
+/**
+ * Anade un miembro al hogar. `link_username` es opcional: sin el, el
+ * miembro solo existe para el reparto de gasto (igual que hasta ahora); con
+ * el, vincula de una vez la cuenta de quien ya se haya registrado en la
+ * app, y esa persona pasa a ver y editar los mismos datos del hogar.
+ */
+export function useCrearMiembro() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NuevoMiembro) => {
+      if (BACKEND_LISTO) return api.post<HouseholdMember>(`${BASE}/household-member/`, input)
+      const miembro: HouseholdMember = {
+        id: siguienteId(),
+        household: input.household,
+        name: input.name,
+        consumption_share: 0,
+        user: null,
+        username: input.link_username || null,
+      }
+      almacen.members.push(miembro)
+      return retraso(miembro)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: claves.household }),
+  })
+}
+
+/** Vincula (username no vacio) o desvincula (cadena vacia) la cuenta de un miembro ya creado. */
+export function useVincularMiembro() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; link_username: string }) => {
+      if (BACKEND_LISTO) {
+        return api.patch<HouseholdMember>(`${BASE}/household-member/${input.id}/`, {
+          link_username: input.link_username,
+        })
+      }
+      const miembro = almacen.members.find((m) => m.id === input.id)
+      if (miembro) miembro.username = input.link_username || null
+      return retraso(miembro)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: claves.household }),
+  })
+}
+
 /** Elimina un miembro del hogar. Se lleva por delante su reparto de gasto. */
 export function useEliminarMiembro() {
   const qc = useQueryClient()

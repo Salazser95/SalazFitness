@@ -44,10 +44,17 @@ class HouseholdMemberSerializer(serializers.ModelSerializer):
         min_value=0,
         max_value=100,
     )
+    # Nombre de cuenta, solo para mostrar: quien vincula/desvincula manda
+    # `link_username` (ver HouseholdMemberViewSet), nunca este id ni el de
+    # `user` directamente -- si no, cualquiera podria vincular la cuenta de
+    # otro con solo adivinar su id.
+    username = serializers.CharField(source='user.username', read_only=True, default=None)
+    link_username = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = HouseholdMember
-        fields = ['id', 'household', 'name', 'user', 'consumption_share']
+        fields = ['id', 'household', 'name', 'user', 'username', 'link_username', 'consumption_share']
+        read_only_fields = ['id', 'user']
 
 
 class IngredientPriceSerializer(serializers.ModelSerializer):

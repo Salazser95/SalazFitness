@@ -1,12 +1,14 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
@@ -80,8 +82,84 @@ def _flag(datos, clave: str, por_defecto: bool) -> bool:
     return str(valor).strip().lower() in ('1', 'true', 'yes', 'si', 'on')
 
 
+User = get_user_model()
+
+#: Centinela para "no se mando link_username en esta peticion": distinto de
+#: None, que aqui significa "desvincular a proposito" (ver _resolver_vinculo).
+_SIN_CAMBIO = object()
+
+
+def _acceso_hogar(user, prefijo: str = '') -> Q:
+    """
+    Filtro Q para "el usuario tiene acceso a este hogar": es el dueno, o es
+    un HouseholdMember de ese hogar con su cuenta vinculada (`user` no nulo).
+
+    `prefijo` es la ruta de campos hasta `household` en el modelo que se
+    esta filtrando: vacio si el modelo tiene `household` como FK directa
+    (Recipe, Purchase...), o algo como 'purchase__'/'recipe__' si household
+    esta detras de otra FK (PurchaseItem, RecipeIngredient...).
+
+    Todo QuerySet filtrado con esto necesita `.distinct()`: el OR fuerza un
+    JOIN contra household_member incluso cuando la fila ya encaja por
+    `owner`, y con mas de un miembro eso duplica filas.
+    """
+    return Q(**{f'{prefijo}household__owner': user}) | Q(**{f'{prefijo}household__members__user': user})
+
+
+def _accesible_o_404(queryset, pk, user, prefijo: str = ''):
+    """
+    Como get_object_or_404, pero acepta tanto al dueno del hogar como a un
+    miembro con la cuenta vinculada. Vale tanto para Household directamente
+    (prefijo vacio, campos `owner`/`members__user`) como para un modelo que
+    cuelga de un hogar (prefijo no vacio, ver _acceso_hogar).
+    """
+    if queryset.model is Household:
+        condicion = Q(owner=user) | Q(members__user=user)
+    else:
+        condicion = _acceso_hogar(user, prefijo)
+    return get_object_or_404(queryset.filter(condicion).distinct(), pk=pk)
+
+
+def _resolver_vinculo(datos, instance=None):
+    """
+    Traduce `link_username` del cuerpo de la peticion al usuario real que
+    hay que guardar en HouseholdMember.user, o a _SIN_CAMBIO si no se mando
+    esa clave (para no tocar el vinculo que ya hubiera en un PATCH parcial).
+
+    Solo se acepta un username exacto, nunca un id de usuario en crudo:
+    aceptar un id dejaria vincular la cuenta de cualquiera con solo
+    adivinarlo. Cadena vacia desvincula a proposito.
+
+    `instance` es la fila que se esta editando (None al crear), para que
+    comprobar "esa cuenta ya esta vinculada" no choque contra si misma al
+    volver a guardar sin cambiar el vinculo.
+    """
+    if 'link_username' not in datos:
+        return _SIN_CAMBIO
+    username = str(datos.get('link_username') or '').strip()
+    if not username:
+        return None
+    usuario = User.objects.filter(username__iexact=username, is_active=True).first()
+    if usuario is None:
+        raise ValidationError({'link_username': ['No existe ninguna cuenta activa con ese nombre de usuario.']})
+    ya_vinculado = HouseholdMember.objects.filter(user=usuario)
+    if instance is not None:
+        ya_vinculado = ya_vinculado.exclude(pk=instance.pk)
+    if ya_vinculado.exists():
+        raise ValidationError({'link_username': ['Esa cuenta ya está vinculada a otro miembro.']})
+    return usuario
+
+
 class HouseholdViewSet(viewsets.ModelViewSet):
-    """API endpoint for households. Only ever shows/edits households owned by the caller."""
+    """
+    Un hogar es visible (listar, ver, /summary) tanto por su dueno como por
+    cualquier miembro con la cuenta vinculada -- es la base de "hogar
+    multiusuario": la pareja/companero de piso que se vincula ve el mismo
+    hogar, no uno propio vacio. Renombrarlo o borrarlo sigue siendo solo
+    cosa del dueno (ver perform_update/perform_destroy): dejar que un
+    miembro cualquiera borrara el hogar entero seria demasiado poder para
+    alguien que solo se anadio para compartir la compra.
+    """
 
     serializer_class = HouseholdSerializer
     is_private = True
@@ -89,10 +167,21 @@ class HouseholdViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Household.objects.none()
-        return Household.objects.filter(owner=self.request.user)
+        user = self.request.user
+        return Household.objects.filter(Q(owner=user) | Q(members__user=user)).distinct()
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+
+    def perform_update(self, serializer):
+        if serializer.instance.owner_id != self.request.user.id:
+            raise PermissionDenied('Solo el dueño del hogar puede editarlo.')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.owner_id != self.request.user.id:
+            raise PermissionDenied('Solo el dueño del hogar puede eliminarlo.')
+        instance.delete()
 
     @action(detail=True, methods=['get'])
     def summary(self, request, pk=None):
@@ -139,22 +228,57 @@ class HouseholdViewSet(viewsets.ModelViewSet):
 
 
 class HouseholdMemberViewSet(viewsets.ModelViewSet):
+    """
+    Lectura abierta a cualquiera con acceso al hogar (dueno o miembro
+    vinculado): todos pueden ver quien mas hay. Anadir, editar o quitar un
+    miembro -- y vincular o desvincular su cuenta -- sigue siendo solo cosa
+    del dueno: es la unica gestion del hogar que no se comparte, para que un
+    miembro no pueda quitar a otro (ni vincularse el sitio de alguien) sin
+    que el dueno lo decida.
+    """
+
     serializer_class = HouseholdMemberSerializer
     is_private = True
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return HouseholdMember.objects.none()
-        return HouseholdMember.objects.filter(household__owner=self.request.user)
+        return HouseholdMember.objects.filter(_acceso_hogar(self.request.user)).distinct()
 
     def create(self, request, *args, **kwargs):
         household_id = request.data.get('household')
         if not household_id:
             return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        # `household` es escribible en el serializer: sin esto se podria
-        # anadir un miembro al hogar de otro con solo adivinar su id.
+        # Deliberadamente estricto (solo dueno, no _accesible_o_404): anadir
+        # miembros es gestion del hogar, no dato compartido.
         get_object_or_404(Household, pk=household_id, owner=request.user)
-        return super().create(request, *args, **kwargs)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # `link_username` no es un campo del modelo (se resuelve aparte a
+        # `user`, ver _resolver_vinculo): sin quitarlo de validated_data,
+        # ModelSerializer.create() se lo pasaria tal cual a
+        # HouseholdMember.objects.create() y rompe con un TypeError.
+        serializer.validated_data.pop('link_username', None)
+        vinculo = _resolver_vinculo(request.data)
+        serializer.save(user=None if vinculo is _SIN_CAMBIO else vinculo)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def perform_update(self, serializer):
+        if serializer.instance.household.owner_id != self.request.user.id:
+            raise PermissionDenied('Solo el dueño del hogar puede editar a sus miembros.')
+        serializer.validated_data.pop('link_username', None)
+        vinculo = _resolver_vinculo(self.request.data, instance=serializer.instance)
+        if vinculo is _SIN_CAMBIO:
+            serializer.save()
+        else:
+            serializer.save(user=vinculo)
+
+    def perform_destroy(self, instance):
+        if instance.household.owner_id != self.request.user.id:
+            raise PermissionDenied('Solo el dueño del hogar puede eliminar a sus miembros.')
+        instance.delete()
 
 
 class IngredientPriceViewSet(viewsets.ModelViewSet):
@@ -165,15 +289,16 @@ class IngredientPriceViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return IngredientPrice.objects.none()
-        return IngredientPrice.objects.filter(household__owner=self.request.user)
+        return IngredientPrice.objects.filter(_acceso_hogar(self.request.user)).distinct()
 
     def create(self, request, *args, **kwargs):
         household_id = request.data.get('household')
         if not household_id:
             return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
         # Mismo motivo: `household` es escribible, sin esto se podria anadir
-        # un precio al hogar de otro con solo adivinar su id.
-        get_object_or_404(Household, pk=household_id, owner=request.user)
+        # un precio al hogar de otro con solo adivinar su id. Dueno O
+        # miembro vinculado: es un dato compartido, no gestion del hogar.
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
         return super().create(request, *args, **kwargs)
 
 
@@ -185,15 +310,16 @@ class PurchaseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Purchase.objects.none()
-        return Purchase.objects.filter(household__owner=self.request.user)
+        return Purchase.objects.filter(_acceso_hogar(self.request.user)).distinct()
 
     def create(self, request, *args, **kwargs):
         household_id = request.data.get('household')
         if not household_id:
             return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
         # Mismo motivo: `household` es escribible, sin esto se podria crear
-        # una compra bajo el hogar de otro con solo adivinar su id.
-        get_object_or_404(Household, pk=household_id, owner=request.user)
+        # una compra bajo el hogar de otro con solo adivinar su id. Dueno O
+        # miembro vinculado.
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
         return super().create(request, *args, **kwargs)
 
     @action(detail=True, methods=['get'])
@@ -228,7 +354,7 @@ class PurchaseItemViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return PurchaseItem.objects.none()
-        return PurchaseItem.objects.filter(purchase__household__owner=self.request.user)
+        return PurchaseItem.objects.filter(_acceso_hogar(self.request.user, 'purchase__')).distinct()
 
     def create(self, request, *args, **kwargs):
         purchase_id = request.data.get('purchase')
@@ -236,7 +362,8 @@ class PurchaseItemViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'purchase is required.'}, status=status.HTTP_400_BAD_REQUEST)
         # `purchase` es escribible en el serializer: sin esto se podria
         # anadir una linea a la compra de otro con solo adivinar su id.
-        get_object_or_404(Purchase, pk=purchase_id, household__owner=request.user)
+        # Dueno O miembro vinculado.
+        _accesible_o_404(Purchase.objects.all(), purchase_id, request.user)
         return super().create(request, *args, **kwargs)
 
 
@@ -252,7 +379,7 @@ class RecipeViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Recipe.objects.none()
-        return Recipe.objects.filter(household__owner=self.request.user)
+        return Recipe.objects.filter(_acceso_hogar(self.request.user)).distinct()
 
     def create(self, request, *args, **kwargs):
         household_id = request.data.get('household')
@@ -260,8 +387,8 @@ class RecipeViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
         # `household` es un campo normal del serializer (no read_only), asi
         # que sin esto cualquiera podria crear una receta bajo el hogar de
-        # otro con solo adivinar su id. Mismo patron que WeeklyPlanViewSet.
-        get_object_or_404(Household, pk=household_id, owner=request.user)
+        # otro con solo adivinar su id. Dueno O miembro vinculado.
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
         return super().create(request, *args, **kwargs)
 
     @action(detail=True, methods=['get'])
@@ -290,7 +417,7 @@ class RecipeIngredientViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return RecipeIngredient.objects.none()
-        return RecipeIngredient.objects.filter(recipe__household__owner=self.request.user)
+        return RecipeIngredient.objects.filter(_acceso_hogar(self.request.user, 'recipe__')).distinct()
 
     def create(self, request, *args, **kwargs):
         recipe_id = request.data.get('recipe')
@@ -298,8 +425,8 @@ class RecipeIngredientViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'recipe is required.'}, status=status.HTTP_400_BAD_REQUEST)
         # Mismo motivo que en RecipeViewSet.create: `recipe` es escribible en
         # el serializer, sin esto se podria anadir un ingrediente a la receta
-        # de otro con solo adivinar su id.
-        get_object_or_404(Recipe, pk=recipe_id, household__owner=request.user)
+        # de otro con solo adivinar su id. Dueno O miembro vinculado.
+        _accesible_o_404(Recipe.objects.all(), recipe_id, request.user)
         return super().create(request, *args, **kwargs)
 
 
@@ -313,8 +440,10 @@ class ShoppingListViewSet(viewsets.ModelViewSet):
             return ShoppingList.objects.none()
         # prefetch obligatorio: el serializer expone `trips`, que recorre las
         # lineas de cada lista. Sin esto, listar N listas hace N consultas.
-        return ShoppingList.objects.filter(household__owner=self.request.user).prefetch_related(
-            'items'
+        return (
+            ShoppingList.objects.filter(_acceso_hogar(self.request.user))
+            .distinct()
+            .prefetch_related('items')
         )
 
     @action(detail=False, methods=['post'], url_path='from-nutrition')
@@ -342,7 +471,7 @@ class ShoppingListViewSet(viewsets.ModelViewSet):
         household_id = request.data.get('household')
         if not household_id:
             return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        household = get_object_or_404(Household, pk=household_id, owner=request.user)
+        household = _accesible_o_404(Household.objects.all(), household_id, request.user)
 
         plan_id = request.data.get('plan')
         if plan_id:
@@ -474,7 +603,7 @@ class ShoppingListViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        household = get_object_or_404(Household, pk=household_id, owner=request.user)
+        household = _accesible_o_404(Household.objects.all(), household_id, request.user)
 
         shopping_list = ShoppingList.objects.create(
             household=household,
@@ -535,7 +664,20 @@ class ShoppingListItemViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return ShoppingListItem.objects.none()
-        return ShoppingListItem.objects.filter(shopping_list__household__owner=self.request.user)
+        return ShoppingListItem.objects.filter(
+            _acceso_hogar(self.request.user, 'shopping_list__')
+        ).distinct()
+
+    def create(self, request, *args, **kwargs):
+        shopping_list_id = request.data.get('shopping_list')
+        if not shopping_list_id:
+            return Response({'detail': 'shopping_list is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # `shopping_list` es escribible en el serializer y esto no tenia
+        # ningun create() propio: sin esto se podia anadir una linea a la
+        # lista de otro con solo adivinar su id (mismo hueco que ya se
+        # cerro en Recipe/Purchase/etc., aqui se habia quedado sin tocar).
+        _accesible_o_404(ShoppingList.objects.all(), shopping_list_id, request.user)
+        return super().create(request, *args, **kwargs)
 
     @action(detail=False, methods=['delete'], url_path='by-group/(?P<group_key>[^/.]+)')
     def by_group(self, request, group_key=None):
@@ -636,16 +778,16 @@ class WeeklyPlanViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return WeeklyPlan.objects.none()
-        return WeeklyPlan.objects.filter(household__owner=self.request.user)
+        return WeeklyPlan.objects.filter(_acceso_hogar(self.request.user)).distinct()
 
     def create(self, request, *args, **kwargs):
         household_id = request.data.get('household')
         if not household_id:
             return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        # Solo un hogar del propio usuario puede recibir un plan: sin esto,
-        # cualquiera podria escribir el plan semanal de un hogar ajeno con
-        # solo adivinar su id.
-        household = get_object_or_404(Household, pk=household_id, owner=request.user)
+        # Solo un hogar accesible (dueno o miembro vinculado) puede recibir
+        # un plan: sin esto, cualquiera podria escribir el plan semanal de
+        # un hogar ajeno con solo adivinar su id.
+        household = _accesible_o_404(Household.objects.all(), household_id, request.user)
         instance = WeeklyPlan.objects.filter(household=household).first()
         if instance is None:
             for campo in ('start_date', 'end_date'):

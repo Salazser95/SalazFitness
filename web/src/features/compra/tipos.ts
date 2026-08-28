@@ -31,6 +31,15 @@ export type HouseholdMember = {
   name: string
   /** Puntos porcentuales, 0-100. La suma de todos los miembros debe dar 100. */
   consumption_share: number
+  /**
+   * Id de la cuenta vinculada, o null si este miembro no tiene cuenta
+   * propia (solo existe para el reparto de gasto). Solo lectura: para
+   * vincular o desvincular se manda `link_username` (ver useCrearMiembro /
+   * useActualizarMiembro en datos.ts), nunca este id directamente.
+   */
+  user: number | null
+  /** Nombre de usuario de la cuenta vinculada, solo para mostrar. */
+  username: string | null
 }
 
 export type Purchase = {
