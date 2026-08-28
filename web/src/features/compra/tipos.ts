@@ -51,6 +51,13 @@ export type Purchase = {
   supermarket: string
   /** Cuantos dias cubre esta compra, para el coste diario por persona. */
   covers_days: number
+  /**
+   * Solo lectura, los pone el backend: no null cuando esta Purchase nace de
+   * marcar como comprada una linea de la lista de la compra (una Purchase
+   * por tanda de esa lista), null en una compra creada a mano.
+   */
+  shopping_list: number | null
+  trip: number | null
 }
 
 export type PurchaseItem = {
@@ -68,6 +75,12 @@ export type PurchaseItem = {
   is_shared: boolean
   /** Obligatorio cuando is_shared es false: de quien es este gasto. */
   member: number | null
+  /**
+   * Solo lectura, lo pone el backend cuando esta linea es el reflejo real de
+   * haber marcado como comprada una linea de la lista de la compra; null en
+   * una linea creada a mano.
+   */
+  shopping_list_item: number | null
 }
 
 export type Recipe = {

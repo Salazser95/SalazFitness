@@ -373,6 +373,61 @@ def _ajustar_despensa(purchase_item, *, sumar: bool):
     despensa.save()
 
 
+def _sincronizar_compra_real(item, *, comprado: bool):
+    """
+    Cuando se marca/desmarca como comprada una linea de una ShoppingList (la
+    lista generada desde nutricion o desde recetas), crea o actualiza su
+    reflejo real en Compras: una PurchaseItem, dentro de la Purchase que
+    representa esa tanda de esa lista. Sin esto, "comprado" en la Lista se
+    quedaba solo en un check que no contaba ni en Compras ni (por lo tanto,
+    ver _ajustar_despensa) en la despensa.
+
+    Volver a marcar la misma linea reutiliza siempre la misma PurchaseItem
+    (uno a uno via shopping_list_item) en vez de duplicarla, y todas las
+    lineas de la misma tanda de la misma lista comparten una unica Purchase
+    (una por tanda, no una por linea).
+
+    Desmarcar no borra la PurchaseItem ni la Purchase: solo pone
+    purchased=False, igual que se haria a mano en Compras. La compra real ya
+    hecha no se deshace solo porque se desmarque el check.
+    """
+    if comprado:
+        purchase, _ = Purchase.objects.get_or_create(
+            household=item.shopping_list.household,
+            shopping_list=item.shopping_list,
+            trip=item.trip,
+            defaults={
+                'date': item.buy_date or timezone.now().date(),
+                'description': f'{item.shopping_list.name} - tanda {item.trip}',
+                'covers_days': item.days_covered or 1,
+            },
+        )
+        purchase_item, creada = PurchaseItem.objects.get_or_create(
+            shopping_list_item=item,
+            defaults={
+                'purchase': purchase,
+                'ingredient': item.ingredient,
+                'name': item.name,
+                'amount': item.amount,
+                'unit': item.unit,
+                'price': item.estimated_price or Decimal('0'),
+                'purchased': True,
+            },
+        )
+        if creada:
+            _ajustar_despensa(purchase_item, sumar=True)
+        elif not purchase_item.purchased:
+            purchase_item.purchased = True
+            purchase_item.save()
+            _ajustar_despensa(purchase_item, sumar=True)
+    else:
+        purchase_item = PurchaseItem.objects.filter(shopping_list_item=item).first()
+        if purchase_item is not None and purchase_item.purchased:
+            purchase_item.purchased = False
+            purchase_item.save()
+            _ajustar_despensa(purchase_item, sumar=False)
+
+
 class PurchaseViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseSerializer
     is_private = True
@@ -768,6 +823,17 @@ class ShoppingListItemViewSet(viewsets.ModelViewSet):
         # cerro en Recipe/Purchase/etc., aqui se habia quedado sin tocar).
         _accesible_o_404(ShoppingList.objects.all(), shopping_list_id, request.user)
         return super().create(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        # Mismo motivo que en PurchaseItemViewSet.perform_update:
+        # `serializer.instance` todavia es el valor de antes de guardar en
+        # este punto (ModelSerializer.save() lo muta en el mismo objeto), asi
+        # que hay que leer `purchased` ANTES de guardar.
+        estaba_comprado = serializer.instance.purchased
+        serializer.save()
+        si_ahora = serializer.instance.purchased
+        if si_ahora != estaba_comprado:
+            _sincronizar_compra_real(serializer.instance, comprado=si_ahora)
 
     @action(detail=False, methods=['delete'], url_path='by-group/(?P<group_key>[^/.]+)')
     def by_group(self, request, group_key=None):

@@ -16,6 +16,20 @@ class Purchase(models.Model):
     description = models.CharField(max_length=255)
     supermarket = models.CharField(max_length=200, blank=True, default='')
     covers_days = models.PositiveIntegerField(default=7)
+    # Puestos solo por el backend (ver _sincronizar_compra_real en
+    # api/views.py) cuando esta Purchase nace de marcar como comprada una
+    # linea de una ShoppingList (la lista generada desde nutricion o
+    # recetas): una por tanda, para no crear una Purchase nueva cada vez que
+    # se marca otra linea de la misma tanda. Null en una compra creada a
+    # mano desde la pantalla de Compras, que no viene de ninguna lista.
+    shopping_list = models.ForeignKey(
+        'salaz.ShoppingList',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='purchases_realizadas',
+    )
+    trip = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ['-date']

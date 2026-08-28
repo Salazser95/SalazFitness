@@ -115,38 +115,38 @@ const almacen = {
     { id: 2, household: 1, name: 'Sam', consumption_share: 40 },
   ] as HouseholdMember[],
   purchases: [
-    { id: 1, household: 1, date: '2026-08-18', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7 },
-    { id: 2, household: 1, date: '2026-08-11', description: 'Compra semanal', supermarket: 'Lidl', covers_days: 7 },
-    { id: 3, household: 1, date: '2026-08-04', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7 },
-    { id: 4, household: 1, date: '2026-07-28', description: 'Compra grande', supermarket: 'Carrefour', covers_days: 10 },
-    { id: 5, household: 1, date: '2026-07-21', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7 },
+    { id: 1, household: 1, date: '2026-08-18', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7, shopping_list: null, trip: null },
+    { id: 2, household: 1, date: '2026-08-11', description: 'Compra semanal', supermarket: 'Lidl', covers_days: 7, shopping_list: null, trip: null },
+    { id: 3, household: 1, date: '2026-08-04', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7, shopping_list: null, trip: null },
+    { id: 4, household: 1, date: '2026-07-28', description: 'Compra grande', supermarket: 'Carrefour', covers_days: 10, shopping_list: null, trip: null },
+    { id: 5, household: 1, date: '2026-07-21', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7, shopping_list: null, trip: null },
   ] as Purchase[],
   purchaseItems: [
     // Compra 1
-    { id: 1, purchase: 1, ingredient: 9001, name: 'Pechuga de pollo', amount: 1.5, unit: 'kg', price: '9.75', purchased: false, is_shared: true, member: null },
-    { id: 2, purchase: 1, ingredient: 9002, name: 'Arroz blanco', amount: 2, unit: 'kg', price: '2.40', purchased: false, is_shared: true, member: null },
-    { id: 3, purchase: 1, ingredient: null, name: 'Verduras varias', amount: 1, unit: 'lote', price: '8.90', purchased: false, is_shared: true, member: null },
-    { id: 4, purchase: 1, ingredient: null, name: 'Proteina en polvo', amount: 1, unit: 'ud', price: '24.90', purchased: false, is_shared: false, member: 1 },
-    { id: 5, purchase: 1, ingredient: null, name: 'Maquinillas de afeitar', amount: 1, unit: 'ud', price: '5.60', purchased: false, is_shared: false, member: 2 },
+    { id: 1, purchase: 1, ingredient: 9001, name: 'Pechuga de pollo', amount: 1.5, unit: 'kg', price: '9.75', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 2, purchase: 1, ingredient: 9002, name: 'Arroz blanco', amount: 2, unit: 'kg', price: '2.40', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 3, purchase: 1, ingredient: null, name: 'Verduras varias', amount: 1, unit: 'lote', price: '8.90', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 4, purchase: 1, ingredient: null, name: 'Proteina en polvo', amount: 1, unit: 'ud', price: '24.90', purchased: false, is_shared: false, member: 1, shopping_list_item: null },
+    { id: 5, purchase: 1, ingredient: null, name: 'Maquinillas de afeitar', amount: 1, unit: 'ud', price: '5.60', purchased: false, is_shared: false, member: 2, shopping_list_item: null },
     // Compra 2
-    { id: 6, purchase: 2, ingredient: 9008, name: 'Atun en lata', amount: 6, unit: 'ud', price: '7.20', purchased: false, is_shared: true, member: null },
-    { id: 7, purchase: 2, ingredient: 9006, name: 'Avena', amount: 1, unit: 'kg', price: '2.10', purchased: false, is_shared: true, member: null },
-    { id: 8, purchase: 2, ingredient: null, name: 'Fruta variada', amount: 1, unit: 'lote', price: '11.30', purchased: false, is_shared: true, member: null },
-    { id: 9, purchase: 2, ingredient: null, name: 'Champu', amount: 1, unit: 'ud', price: '4.20', purchased: false, is_shared: false, member: 1 },
+    { id: 6, purchase: 2, ingredient: 9008, name: 'Atun en lata', amount: 6, unit: 'ud', price: '7.20', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 7, purchase: 2, ingredient: 9006, name: 'Avena', amount: 1, unit: 'kg', price: '2.10', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 8, purchase: 2, ingredient: null, name: 'Fruta variada', amount: 1, unit: 'lote', price: '11.30', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 9, purchase: 2, ingredient: null, name: 'Champu', amount: 1, unit: 'ud', price: '4.20', purchased: false, is_shared: false, member: 1, shopping_list_item: null },
     // Compra 3
-    { id: 10, purchase: 3, ingredient: 9001, name: 'Pechuga de pollo', amount: 1, unit: 'kg', price: '6.50', purchased: false, is_shared: true, member: null },
-    { id: 11, purchase: 3, ingredient: 9004, name: 'Brocoli', amount: 1, unit: 'kg', price: '2.50', purchased: false, is_shared: true, member: null },
-    { id: 12, purchase: 3, ingredient: 9005, name: 'Huevos', amount: 2, unit: 'docena', price: '6.40', purchased: false, is_shared: true, member: null },
-    { id: 13, purchase: 3, ingredient: null, name: 'Suplemento vitaminas', amount: 1, unit: 'ud', price: '12.00', purchased: false, is_shared: false, member: 2 },
+    { id: 10, purchase: 3, ingredient: 9001, name: 'Pechuga de pollo', amount: 1, unit: 'kg', price: '6.50', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 11, purchase: 3, ingredient: 9004, name: 'Brocoli', amount: 1, unit: 'kg', price: '2.50', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 12, purchase: 3, ingredient: 9005, name: 'Huevos', amount: 2, unit: 'docena', price: '6.40', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 13, purchase: 3, ingredient: null, name: 'Suplemento vitaminas', amount: 1, unit: 'ud', price: '12.00', purchased: false, is_shared: false, member: 2, shopping_list_item: null },
     // Compra 4 (grande, 10 dias)
-    { id: 14, purchase: 4, ingredient: 9002, name: 'Arroz blanco', amount: 5, unit: 'kg', price: '6.00', purchased: false, is_shared: true, member: null },
-    { id: 15, purchase: 4, ingredient: 9003, name: 'Aceite de oliva', amount: 1, unit: 'l', price: '7.80', purchased: false, is_shared: true, member: null },
-    { id: 16, purchase: 4, ingredient: null, name: 'Congelados varios', amount: 1, unit: 'lote', price: '18.50', purchased: false, is_shared: true, member: null },
-    { id: 17, purchase: 4, ingredient: null, name: 'Limpieza del hogar', amount: 1, unit: 'lote', price: '15.20', purchased: false, is_shared: true, member: null },
+    { id: 14, purchase: 4, ingredient: 9002, name: 'Arroz blanco', amount: 5, unit: 'kg', price: '6.00', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 15, purchase: 4, ingredient: 9003, name: 'Aceite de oliva', amount: 1, unit: 'l', price: '7.80', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 16, purchase: 4, ingredient: null, name: 'Congelados varios', amount: 1, unit: 'lote', price: '18.50', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 17, purchase: 4, ingredient: null, name: 'Limpieza del hogar', amount: 1, unit: 'lote', price: '15.20', purchased: false, is_shared: true, member: null, shopping_list_item: null },
     // Compra 5
-    { id: 18, purchase: 5, ingredient: 9007, name: 'Platanos', amount: 1.2, unit: 'kg', price: '2.28', purchased: false, is_shared: true, member: null },
-    { id: 19, purchase: 5, ingredient: 9001, name: 'Pechuga de pollo', amount: 1, unit: 'kg', price: '6.50', purchased: false, is_shared: true, member: null },
-    { id: 20, purchase: 5, ingredient: null, name: 'Ropa deportiva', amount: 1, unit: 'ud', price: '22.00', purchased: false, is_shared: false, member: 1 },
+    { id: 18, purchase: 5, ingredient: 9007, name: 'Platanos', amount: 1.2, unit: 'kg', price: '2.28', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 19, purchase: 5, ingredient: 9001, name: 'Pechuga de pollo', amount: 1, unit: 'kg', price: '6.50', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 20, purchase: 5, ingredient: null, name: 'Ropa deportiva', amount: 1, unit: 'ud', price: '22.00', purchased: false, is_shared: false, member: 1, shopping_list_item: null },
   ] as PurchaseItem[],
   recipes: [
     { id: 1, household: 1, name: 'Pollo con arroz y brocoli', servings: 4, instructions: 'Cocer el arroz. Saltear el pollo en dados. Hervir el brocoli al vapor. Mezclar y servir.' },
@@ -426,12 +426,12 @@ export function usePurchasesConTotal(householdId: number) {
   })
 }
 
-export type NuevaLinea = Omit<PurchaseItem, 'id' | 'purchase'>
+export type NuevaLinea = Omit<PurchaseItem, 'id' | 'purchase' | 'shopping_list_item'>
 
 export function useCrearCompra() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { cabecera: Omit<Purchase, 'id'>; lineas: NuevaLinea[] }) => {
+    mutationFn: async (input: { cabecera: Omit<Purchase, 'id' | 'shopping_list' | 'trip'>; lineas: NuevaLinea[] }) => {
       if (BACKEND_LISTO) {
         const compra = await api.post<Purchase>(`${BASE}/purchase/`, input.cabecera)
         await Promise.all(
@@ -440,10 +440,10 @@ export function useCrearCompra() {
         return compra
       }
       const id = siguienteId()
-      const compra: Purchase = { id, ...input.cabecera }
+      const compra: Purchase = { id, shopping_list: null, trip: null, ...input.cabecera }
       almacen.purchases.push(compra)
       for (const linea of input.lineas) {
-        almacen.purchaseItems.push({ id: siguienteId(), purchase: id, ...linea })
+        almacen.purchaseItems.push({ id: siguienteId(), purchase: id, shopping_list_item: null, ...linea })
       }
       return retraso(compra)
     },
@@ -458,7 +458,7 @@ export function useCrearCompra() {
 export function useActualizarCompra() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { id: number; cambios: Partial<Omit<Purchase, 'id' | 'household'>> }) => {
+    mutationFn: async (input: { id: number; cambios: Partial<Omit<Purchase, 'id' | 'household' | 'shopping_list' | 'trip'>> }) => {
       if (BACKEND_LISTO) return api.patch<Purchase>(`${BASE}/purchase/${input.id}/`, input.cambios)
       const compra = almacen.purchases.find((p) => p.id === input.id)
       if (!compra) throw new Error('Compra no encontrada')
@@ -546,10 +546,12 @@ export function useDuplicarCompra() {
         description: original.description,
         supermarket: original.supermarket,
         covers_days: original.covers_days,
+        shopping_list: null,
+        trip: null,
       }
       almacen.purchases.push(compra)
       for (const linea of lineasOriginales) {
-        almacen.purchaseItems.push({ ...linea, id: siguienteId(), purchase: id })
+        almacen.purchaseItems.push({ ...linea, id: siguienteId(), purchase: id, purchased: false, shopping_list_item: null })
       }
       return retraso(compra)
     },
@@ -570,7 +572,7 @@ export function useCrearLineaCompra() {
       if (BACKEND_LISTO) {
         return api.post<PurchaseItem>(`${BASE}/purchase-item/`, { ...input.linea, purchase: input.purchase })
       }
-      const item: PurchaseItem = { id: siguienteId(), purchase: input.purchase, ...input.linea }
+      const item: PurchaseItem = { id: siguienteId(), purchase: input.purchase, shopping_list_item: null, ...input.linea }
       almacen.purchaseItems.push(item)
       return retraso(item)
     },
@@ -1161,6 +1163,18 @@ export function useMarcarComprado() {
     },
     onSuccess: (item) => {
       qc.invalidateQueries({ queryKey: claves.shoppingListItems(item.shopping_list) })
+      // Marcar/desmarcar como comprado puede haber creado o tocado su
+      // reflejo real en Compras -- una Purchase por tanda de la lista, con
+      // su PurchaseItem -- y, con ello, la despensa (ver
+      // _sincronizar_compra_real en el backend). No se sabe aqui el
+      // household ni el id de esa Purchase, asi que se invalidan los
+      // prefijos enteros en vez de una clave sola.
+      qc.invalidateQueries({ queryKey: ['compra', 'purchases'] })
+      qc.invalidateQueries({ queryKey: ['compra', 'purchase-items'] })
+      qc.invalidateQueries({ queryKey: ['compra', 'breakdown'] })
+      qc.invalidateQueries({ queryKey: prefijos.pantryItems })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
     },
   })
 }

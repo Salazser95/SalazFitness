@@ -14,6 +14,8 @@ from salaz.models import (
     PurchaseItem,
     Recipe,
     RecipeIngredient,
+    ShoppingList,
+    ShoppingListItem,
 )
 from wger.core.models import Language
 from wger.nutrition.models import Ingredient
@@ -571,3 +573,107 @@ class ShoppingListGenerateApiTests(SalazApiTestCase):
             format='json',
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class ListaACompraApiTests(SalazApiTestCase):
+    """
+    Marcar una linea de la lista de la compra (generada desde nutricion o
+    desde recetas) como comprada tiene que reflejarse de verdad en Compras
+    (una Purchase real, no solo el check) y, a traves de eso, en la
+    despensa -- ver _sincronizar_compra_real en api/views.py.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='karen', password='pw')
+        self.household = Household.objects.create(owner=self.user, name='Casa Karen')
+        self.ingredient = make_ingredient(name='Moras')
+        self.lista = ShoppingList.objects.create(
+            household=self.household, name='Lista de la semana',
+            start_date=datetime.date(2026, 1, 1), end_date=datetime.date(2026, 1, 12),
+        )
+        self.item = ShoppingListItem.objects.create(
+            shopping_list=self.lista, ingredient=self.ingredient, name='Moras',
+            amount=Decimal('0.25'), unit='kg', estimated_price=Decimal('2.50'),
+            trip=1, buy_date=datetime.date(2026, 1, 1),
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def _marcar(self, item_id, purchased):
+        return self.client.patch(
+            f'/api/v2/salaz/shopping-list-item/{item_id}/', {'purchased': purchased}, format='json',
+        )
+
+    def test_marcar_comprado_crea_la_compra_real_y_su_linea(self):
+        response = self._marcar(self.item.id, True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+        compra = Purchase.objects.get(household=self.household, shopping_list=self.lista, trip=1)
+        self.assertEqual(compra.date, datetime.date(2026, 1, 1))
+
+        linea = PurchaseItem.objects.get(shopping_list_item=self.item)
+        self.assertEqual(linea.purchase_id, compra.id)
+        self.assertEqual(linea.ingredient_id, self.ingredient.id)
+        self.assertEqual(linea.amount, Decimal('0.25'))
+        self.assertEqual(linea.unit, 'kg')
+        self.assertEqual(linea.price, Decimal('2.50'))
+        self.assertTrue(linea.purchased)
+
+    def test_marcar_comprado_ajusta_la_despensa(self):
+        self._marcar(self.item.id, True)
+        despensa = PantryItem.objects.get(household=self.household, ingredient=self.ingredient, unit='kg')
+        self.assertEqual(despensa.amount, Decimal('0.25'))
+
+    def test_dos_lineas_de_la_misma_tanda_comparten_una_sola_compra(self):
+        otro_item = ShoppingListItem.objects.create(
+            shopping_list=self.lista, name='Pan', amount=Decimal('1'), unit='unit',
+            estimated_price=Decimal('1.20'), trip=1, buy_date=datetime.date(2026, 1, 1),
+        )
+        self._marcar(self.item.id, True)
+        self._marcar(otro_item.id, True)
+        self.assertEqual(
+            Purchase.objects.filter(household=self.household, shopping_list=self.lista, trip=1).count(), 1
+        )
+
+    def test_una_tanda_distinta_crea_una_compra_distinta(self):
+        item_tanda_2 = ShoppingListItem.objects.create(
+            shopping_list=self.lista, name='Fresas', amount=Decimal('0.25'), unit='kg',
+            estimated_price=Decimal('2.00'), trip=2, buy_date=datetime.date(2026, 1, 4),
+        )
+        self._marcar(self.item.id, True)
+        self._marcar(item_tanda_2.id, True)
+        self.assertEqual(
+            Purchase.objects.filter(household=self.household, shopping_list=self.lista).count(), 2
+        )
+
+    def test_volver_a_marcar_no_duplica_la_linea(self):
+        self._marcar(self.item.id, True)
+        self._marcar(self.item.id, False)
+        self._marcar(self.item.id, True)
+        self.assertEqual(PurchaseItem.objects.filter(shopping_list_item=self.item).count(), 1)
+        despensa = PantryItem.objects.get(household=self.household, ingredient=self.ingredient, unit='kg')
+        # 0.25 al marcar, -0.25 al desmarcar, +0.25 al volver a marcar: 0.25, no 0.50.
+        self.assertEqual(despensa.amount, Decimal('0.25'))
+
+    def test_desmarcar_revierte_la_despensa_sin_borrar_la_linea(self):
+        self._marcar(self.item.id, True)
+        self._marcar(self.item.id, False)
+
+        linea = PurchaseItem.objects.get(shopping_list_item=self.item)
+        self.assertFalse(linea.purchased)
+        despensa = PantryItem.objects.get(household=self.household, ingredient=self.ingredient, unit='kg')
+        self.assertEqual(despensa.amount, Decimal('0.00'))
+
+    def test_desmarcar_sin_haber_marcado_antes_no_hace_nada(self):
+        response = self._marcar(self.item.id, False)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertFalse(PurchaseItem.objects.filter(shopping_list_item=self.item).exists())
+        self.assertFalse(Purchase.objects.filter(shopping_list=self.lista).exists())
+
+    def test_guardar_sin_cambiar_purchased_no_duplica_nada(self):
+        self._marcar(self.item.id, True)
+        # PATCH de otro campo (el supermercado), sin tocar `purchased`.
+        response = self.client.patch(
+            f'/api/v2/salaz/shopping-list-item/{self.item.id}/', {'supermarket': 'Mercadona'}, format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(PurchaseItem.objects.filter(shopping_list_item=self.item).count(), 1)

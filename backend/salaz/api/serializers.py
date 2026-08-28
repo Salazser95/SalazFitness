@@ -97,7 +97,14 @@ class PurchaseSerializer(serializers.ModelSerializer):
             'covers_days',
             'total_cost',
             'cost_per_day',
+            'shopping_list',
+            'trip',
         ]
+        # shopping_list/trip los pone solo el backend al sincronizar una
+        # tanda de la lista con Compras (ver _sincronizar_compra_real):
+        # dejarlos escribibles permitiria "adoptar" a mano la Purchase de
+        # una tanda ajena con solo adivinar el id de su ShoppingList.
+        read_only_fields = ['id', 'shopping_list', 'trip']
 
 
 class PurchaseItemSerializer(serializers.ModelSerializer):
@@ -114,7 +121,11 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             'purchased',
             'is_shared',
             'member',
+            'shopping_list_item',
         ]
+        # Mismo motivo que shopping_list/trip en PurchaseSerializer: solo lo
+        # pone el backend al sincronizar (ver _sincronizar_compra_real).
+        read_only_fields = ['id', 'shopping_list_item']
 
     def validate(self, attrs):
         ingredient = attrs.get('ingredient', getattr(self.instance, 'ingredient', None))

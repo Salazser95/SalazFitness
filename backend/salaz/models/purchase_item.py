@@ -45,6 +45,20 @@ class PurchaseItem(models.Model):
         related_name='purchase_items',
         help_text='Set when this item belongs to one specific member, not the whole household.',
     )
+    # Puesto solo por el backend (ver _sincronizar_compra_real en
+    # api/views.py) cuando esta linea es el reflejo real de haber marcado
+    # como comprada una linea de una ShoppingList: uno a uno, para que
+    # volver a marcar la misma linea reutilice esta fila en vez de duplicar
+    # la compra. Null en una linea creada a mano desde la pantalla de
+    # Compras. SET_NULL al borrar la linea de la lista: la compra real ya
+    # hecha no se deshace solo porque se quite de la lista de la compra.
+    shopping_list_item = models.OneToOneField(
+        'salaz.ShoppingListItem',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='purchase_item',
+    )
 
     class Meta:
         ordering = ['id']
