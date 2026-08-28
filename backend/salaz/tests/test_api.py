@@ -204,6 +204,23 @@ class PurchaseApiTests(SalazApiTestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
 
+    def test_purchase_item_starts_unmarked_and_can_be_marked_purchased(self):
+        creado = self.client.post(
+            '/api/v2/salaz/purchase-item/',
+            {
+                'purchase': self.purchase.id, 'name': 'Tomates', 'amount': '1',
+                'unit': 'kg', 'price': '2.50', 'is_shared': True,
+            },
+            format='json',
+        )
+        self.assertFalse(creado.data['purchased'])
+
+        marcado = self.client.patch(
+            f"/api/v2/salaz/purchase-item/{creado.data['id']}/", {'purchased': True}, format='json'
+        )
+        self.assertEqual(marcado.status_code, status.HTTP_200_OK, marcado.data)
+        self.assertTrue(marcado.data['purchased'])
+
     def test_cannot_create_purchase_item_for_another_users_purchase(self):
         other = User.objects.create_user(username='mallory', password='pw')
         other_household = Household.objects.create(owner=other, name='Casa Mallory')

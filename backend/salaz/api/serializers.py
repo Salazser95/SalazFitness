@@ -110,6 +110,7 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             'amount',
             'unit',
             'price',
+            'purchased',
             'is_shared',
             'member',
         ]

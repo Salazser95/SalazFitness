@@ -63,6 +63,8 @@ export type PurchaseItem = {
   unit: string
   /** Decimal en euros, como string (ver nota de arriba). */
   price: string
+  /** Si ya se ha metido en el carro durante esta compra. */
+  purchased: boolean
   is_shared: boolean
   /** Obligatorio cuando is_shared es false: de quien es este gasto. */
   member: number | null

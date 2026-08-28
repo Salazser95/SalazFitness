@@ -29,6 +29,13 @@ class PurchaseItem(models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     unit = models.CharField(max_length=10, choices=IngredientPrice.UNIT_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    # Si ya se ha metido en el carro durante esta compra. Antes solo vivia en
+    # localStorage del navegador (ver la nota que habia en CompraDetalle.tsx):
+    # no se sincronizaba entre dispositivos ni sobrevivia a borrar datos del
+    # navegador. Empieza sin marcar, igual que ShoppingListItem.purchased:
+    # se va marcando linea a linea mientras se hace la compra fisica, para
+    # ver el total acumulado frente al esperado.
+    purchased = models.BooleanField(default=False)
     is_shared = models.BooleanField(default=True)
     member = models.ForeignKey(
         'salaz.HouseholdMember',

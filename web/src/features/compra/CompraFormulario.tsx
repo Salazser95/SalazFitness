@@ -61,6 +61,7 @@ function lineaAPayload(l: LineaForm): NuevaLinea {
     amount: Number(String(l.amount).replace(',', '.')) || 0,
     unit: l.unit.trim() || 'unit',
     price: (eurosACentimos(l.price) / 100).toFixed(2),
+    purchased: false,
     is_shared: l.is_shared,
     member: l.is_shared ? null : l.member,
   }
