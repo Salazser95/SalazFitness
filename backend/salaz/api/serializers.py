@@ -9,6 +9,7 @@ from salaz.models import (
     PantryItem,
     Purchase,
     PurchaseItem,
+    Receipt,
     RecentIngredient,
     Recipe,
     RecipeIngredient,
@@ -146,6 +147,43 @@ class PantryItemSerializer(serializers.ModelSerializer):
         if not ingredient and not name:
             raise serializers.ValidationError('Either ingredient or name must be set.')
         return attrs
+
+
+class ReceiptSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Receipt
+        fields = [
+            'id',
+            'household',
+            'image',
+            'markdown',
+            'status',
+            'supermarket',
+            'date',
+            'total',
+            'parsed',
+            'error',
+            'purchase',
+            'created',
+            'updated_at',
+        ]
+        # Todo lo que sale de analizar el ticket lo escribe solo el backend
+        # (ver ReceiptViewSet.analizar/confirmar). Lo unico que manda el
+        # cliente es el hogar, la foto y el texto: si `parsed` o `total`
+        # fueran escribibles, se podria colar una compra inventada saltandose
+        # el parser.
+        read_only_fields = [
+            'id',
+            'status',
+            'supermarket',
+            'date',
+            'total',
+            'parsed',
+            'error',
+            'purchase',
+            'created',
+            'updated_at',
+        ]
 
 
 class RecipeSerializer(serializers.ModelSerializer):

@@ -7,6 +7,7 @@ from salaz.models.ingredient_price import IngredientPrice
 from salaz.models.pantry_item import PantryItem
 from salaz.models.purchase import Purchase
 from salaz.models.purchase_item import PurchaseItem
+from salaz.models.receipt import Receipt
 from salaz.models.recent_ingredient import RecentIngredient
 from salaz.models.recipe import Recipe
 from salaz.models.recipe_ingredient import RecipeIngredient
@@ -29,6 +30,7 @@ __all__ = [
     'PantryItem',
     'Purchase',
     'PurchaseItem',
+    'Receipt',
     'RecentIngredient',
     'Recipe',
     'RecipeIngredient',

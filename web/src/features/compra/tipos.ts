@@ -301,6 +301,64 @@ export type GenerarListaPayload = {
   recipe_ids: number[]
 }
 
+// ---------------------------------------------------------------- tickets
+
+/**
+ * Una linea de un ticket ya analizado. `units` es el numero de unidades
+ * (bolsas, botes...) y va a `null` cuando el producto se vende a peso: en
+ * ese caso `amount` es la cantidad en kg/g/l/ml, no un numero de unidades.
+ */
+export type ReceiptLine = {
+  name: string
+  units: string | null
+  /** Cantidad: unidades, kg o litros segun `unit`. */
+  amount: string
+  unit: 'unit' | 'kg' | 'g' | 'l' | 'ml'
+  unit_price: string | null
+  /** Importe de la linea, decimal en euros como string. */
+  total: string
+}
+
+/**
+ * Salida del analisis de un ticket. El objeto real que devuelve la API es
+ * `{}` (vacio) mientras el ticket sigue 'pendiente' -- de ahi que todos los
+ * campos sean opcionales aqui en vez de un tipo aparte para el caso vacio.
+ */
+export type ReceiptParsed = {
+  supermarket: string
+  date: string | null
+  total: string | null
+  lines: ReceiptLine[]
+  warnings: string[]
+}
+
+/**
+ * Ticket de compra: foto del papel + su transcripcion a texto, que se manda
+ * a analizar y, una vez revisado, se confirma -- y ese paso crea una Purchase
+ * real que alimenta Compras, Despensa, Resumen y Hogar (ver useConfirmarTicket
+ * en datos.ts). Todos los campos salvo `household`, `image` y `markdown` son
+ * de solo lectura: los calcula el backend al analizar o confirmar.
+ */
+export type Receipt = {
+  id: number
+  household: number
+  /** URL de la foto subida como justificante, o null si no se adjunto ninguna. */
+  image: string | null
+  /** Transcripcion del ticket. Editable: se reenvia para volver a analizar. */
+  markdown: string
+  status: 'pendiente' | 'analizado' | 'confirmado' | 'error'
+  supermarket: string
+  date: string | null
+  total: string | null
+  parsed: Partial<ReceiptParsed>
+  /** Mensaje del backend cuando status es 'error'. Cadena vacia en cualquier otro caso. */
+  error: string
+  /** Id de la Purchase creada al confirmar, o null hasta que eso pase. */
+  purchase: number | null
+  created: string
+  updated_at: string
+}
+
 // ------------------------------------------------------- busqueda de wger
 
 /** Resultado de GET /api/v2/ingredient/?name__search= (endpoint real de wger). */

@@ -274,6 +274,69 @@ comprados. Lo consume el diario de Nutrición.
 `status` es `comprado`, `parcial`, `pendiente` o `sin_datos`. Una línea cubre
 una fecha si `buy_date <= fecha < buy_date + days_covered`.
 
+### Ticket de la compra (foto → texto → datos)
+
+Subir la foto de un ticket y volcarla a una compra real. El camino tiene un
+paso intermedio a propósito, y ese paso es **texto legible**:
+
+```
+foto  →  markdown  →  parsed  →  Purchase + PurchaseItem
+                                   ├→ Despensa (PantryItem)
+                                   ├→ Resumen / Hogar
+                                   └→ Lista (marca lo que ya se ha comprado)
+```
+
+`markdown` es la transcripción del ticket, y se guarda **editable**. Esa es la
+decisión de diseño importante: si la transcripción lee mal una línea, se
+corrige el texto y se vuelve a analizar, sin volver a fotografiar nada, y sin
+que el resto de la cadena dependa de cómo se obtuvo ese texto.
+
+> **Estado actual de la transcripción:** hoy el texto se pega a mano. La
+> instalación no trae OCR (`tesseract`) ni clave de API de visión, así que el
+> endpoint acepta el `markdown` ya transcrito. Enchufar más adelante visión u
+> OCR consiste en rellenar `markdown` antes de llamar a `/analizar/`: nada más
+> del contrato cambia.
+
+| Endpoint | Qué hace |
+|---|---|
+| `POST /api/v2/salaz/receipt/` | Crea el ticket. `household` obligatorio; `image` (fichero) y `markdown` opcionales. Acepta multipart y JSON. |
+| `POST /api/v2/salaz/receipt/{id}/analizar/` | Pasa el texto por el parser (`salaz/tickets.py`) y guarda el resultado en `parsed`. Admite `markdown` en el cuerpo para corregir el texto en la misma llamada. **No toca compras ni despensa.** |
+| `POST /api/v2/salaz/receipt/{id}/confirmar/` | Vuelca a una compra real. `201` la primera vez, `200` si ya estaba confirmado (idempotente), `400` si no está analizado. |
+| `GET/PATCH/DELETE /api/v2/salaz/receipt/{id}/` | CRUD normal. Borrar el ticket **no** borra la compra ya confirmada. |
+
+Estados: `pendiente` → `analizado` → `confirmado`, más `error` si el texto no
+da ninguna línea de producto.
+
+```jsonc
+{
+  "id": 3, "household": 1, "status": "analizado",
+  "supermarket": "Mercadona", "date": "2026-08-19", "total": "19.10",
+  "parsed": {
+    "supermarket": "Mercadona", "date": "2026-08-19", "total": "19.10",
+    "lines": [
+      { "name": "LECHE ENTERA 1L", "units": "2", "amount": "2",
+        "unit": "unit", "unit_price": "0.89", "total": "1.78" },
+      { "name": "PLATANO", "units": null, "amount": "0.760",
+        "unit": "kg", "unit_price": "3.00", "total": "2.28" }
+    ],
+    "warnings": []
+  },
+  "purchase": null
+}
+```
+
+El parser entiende tickets en **castellano y catalán** (`Descripción`/
+`Descripció`, `Importe`/`Import`, `TARJETA`/`TARGETA`...), coma decimal, y las
+líneas de producto a peso en dos renglones (`PLATANO` … / `0,760 kg 3,00 EUR/kg`).
+
+Al confirmar, cada línea del ticket se intenta casar por nombre normalizado
+(`frescura.normalizar_nombre`) contra lo que siga pendiente en la lista de la
+compra activa. Lo que casa se marca como comprado **por el ORM, no por el
+ViewSet de la lista**: pasar por ahí dispararía `_sincronizar_compra_real` y
+crearía una segunda compra por lo mismo, duplicando gasto y despensa.
+
+Hay tickets de prueba (ficticios) en `docs/tickets-prueba/`.
+
 ### Sincronización entre dispositivos
 
 Siete datos que hasta ahora vivían solo en el `localStorage` del navegador (y

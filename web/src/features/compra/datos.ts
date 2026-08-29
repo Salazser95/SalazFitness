@@ -31,6 +31,7 @@ import type {
   Purchase,
   PurchaseBreakdown,
   PurchaseItem,
+  Receipt,
   Recipe,
   RecipeCost,
   RecipeIngredient,
@@ -178,6 +179,8 @@ const almacen = {
   // Despensa vacia por defecto: se rellena comprando (o a mano), no trae
   // ejemplos precargados como el resto del almacen.
   pantryItems: [] as PantryItem[],
+  // Sin tickets de ejemplo precargados, igual que la despensa: nacen de subir uno.
+  receipts: [] as Receipt[],
 }
 
 async function retraso<T>(valor: T): Promise<T> {
@@ -204,6 +207,8 @@ const claves = {
   shoppingList: (householdId: number) => ['compra', 'shopping-list', householdId] as const,
   shoppingListItems: (listId: number) => ['compra', 'shopping-list-items', listId] as const,
   pantryItems: (householdId: number) => ['compra', 'pantry-items', householdId] as const,
+  receipts: (householdId: number) => ['compra', 'receipts', householdId] as const,
+  receipt: (id: number) => ['compra', 'receipt', id] as const,
 }
 
 // Prefijos usados para invalidar en bloque queries derivadas que no dependen
@@ -1527,6 +1532,267 @@ export function useCobertura(listId: number, fecha: string) {
     queryFn: () => api.get<Cobertura>(`${BASE}/shopping-list/${listId}/coverage/?date=${fecha}`),
     enabled: listId > 0 && fecha.length === 10,
     staleTime: 60_000,
+  })
+}
+
+// ================================================================
+// Tickets de compra
+// ================================================================
+
+async function cargarTickets(householdId: number): Promise<Receipt[]> {
+  if (BACKEND_LISTO) return fetchAll<Receipt>(`${BASE}/receipt/?household=${householdId}`)
+  return retraso(
+    almacen.receipts
+      .filter((t) => t.household === householdId)
+      .slice()
+      .sort((a, b) => b.created.localeCompare(a.created)),
+  )
+}
+
+export function useReceipts(householdId: number) {
+  return useQuery({
+    queryKey: claves.receipts(householdId),
+    queryFn: () => cargarTickets(householdId),
+    enabled: householdId > 0,
+  })
+}
+
+async function cargarTicket(id: number): Promise<Receipt> {
+  if (BACKEND_LISTO) return api.get<Receipt>(`${BASE}/receipt/${id}/`)
+  const ticket = almacen.receipts.find((t) => t.id === id)
+  if (!ticket) throw new Error('Ticket no encontrado')
+  return retraso(ticket)
+}
+
+export function useReceipt(id: number) {
+  return useQuery({ queryKey: claves.receipt(id), queryFn: () => cargarTicket(id), enabled: id > 0 })
+}
+
+export type NuevoTicket = { household: number; image?: File | null; markdown?: string }
+
+/**
+ * Sube un ticket nuevo: la foto de papel (como justificante) y/o la
+ * transcripcion pegada a mano. Mismo patron que useSubirFotoReceta: fetch
+ * directo con FormData en vez de api.post, porque api.post de lib/api.ts
+ * siempre manda JSON y forzar el Content-Type a mano a "multipart/form-data"
+ * pierde el boundary que el navegador calcula solo.
+ */
+export function useSubirTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NuevoTicket) => {
+      if (BACKEND_LISTO) {
+        const tokens = readTokens()
+        const body = new FormData()
+        body.append('household', String(input.household))
+        if (input.image) body.append('image', input.image)
+        if (input.markdown) body.append('markdown', input.markdown)
+
+        const res = await fetch(urlApi(`${BASE}/receipt/`), {
+          method: 'POST',
+          headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : undefined,
+          body,
+        })
+
+        if (!res.ok) {
+          let parsed: unknown = null
+          try {
+            parsed = await res.json()
+          } catch {
+            /* respuesta sin cuerpo JSON */
+          }
+          throw new ApiError(res.status, parsed)
+        }
+
+        return (await res.json()) as Receipt
+      }
+
+      const ahora = new Date().toISOString()
+      const ticket: Receipt = {
+        id: siguienteId(),
+        household: input.household,
+        // URL local solo para poder ensenar la miniatura en el mock: nunca
+        // se manda a ningun sitio, y se pierde al recargar la pagina.
+        image: input.image ? URL.createObjectURL(input.image) : null,
+        markdown: input.markdown ?? '',
+        status: 'pendiente',
+        supermarket: '',
+        date: null,
+        total: null,
+        parsed: {},
+        error: '',
+        purchase: null,
+        created: ahora,
+        updated_at: ahora,
+      }
+      almacen.receipts.push(ticket)
+      return retraso(ticket)
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: claves.receipts(ticket.household) })
+    },
+  })
+}
+
+/**
+ * Analiza (o reanaliza) un ticket. `markdown`, si se manda, reemplaza el
+ * texto guardado en la misma llamada -- es el arreglo cuando la transcripcion
+ * ha leido mal una linea: se corrige el texto y se vuelve a analizar de una.
+ *
+ * El backend responde 400 cuando no hay texto que analizar, pero con el
+ * propio ticket (ya en status 'error') en el cuerpo: se recupera ese cuerpo
+ * en vez de dejar que el 400 tumbe la mutacion, para que la pantalla lo trate
+ * igual que cualquier otro ticket en error (mensaje en rojo + reintentar),
+ * no como un fallo de red.
+ */
+export function useAnalizarTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; markdown?: string }) => {
+      if (BACKEND_LISTO) {
+        try {
+          return await api.post<Receipt>(
+            `${BASE}/receipt/${input.id}/analizar/`,
+            input.markdown !== undefined ? { markdown: input.markdown } : undefined,
+          )
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 400 && e.body && typeof e.body === 'object') {
+            return e.body as Receipt
+          }
+          throw e
+        }
+      }
+
+      const ticket = almacen.receipts.find((t) => t.id === input.id)
+      if (!ticket) throw new Error('Ticket no encontrado')
+      if (input.markdown !== undefined) ticket.markdown = input.markdown
+      ticket.updated_at = new Date().toISOString()
+
+      if (!ticket.markdown.trim()) {
+        ticket.status = 'error'
+        ticket.error = 'No hay texto que analizar. Escribe o pega la transcripcion del ticket.'
+        return retraso(ticket)
+      }
+
+      // Analisis de mentira: no reimplementa el parser real (eso lo hace el
+      // backend), solo deja el ticket en un estado plausible para poder
+      // probar el resto del flujo con BACKEND_LISTO = false.
+      ticket.status = 'analizado'
+      ticket.error = ''
+      ticket.supermarket = 'Mercadona'
+      ticket.date = today()
+      ticket.total = '19.10'
+      ticket.parsed = {
+        supermarket: ticket.supermarket,
+        date: ticket.date,
+        total: ticket.total,
+        lines: [
+          { name: 'Leche entera 1L', units: '2', amount: '2', unit: 'unit', unit_price: '0.89', total: '1.78' },
+          { name: 'Pan de molde', units: '1', amount: '1', unit: 'unit', unit_price: null, total: '1.45' },
+          { name: 'Platano', units: null, amount: '0.760', unit: 'kg', unit_price: '3.00', total: '2.28' },
+        ],
+        warnings: ['Análisis de ejemplo: todavía sin backend real (BACKEND_LISTO = false).'],
+      }
+      return retraso(ticket)
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: claves.receipt(ticket.id) })
+      qc.invalidateQueries({ queryKey: claves.receipts(ticket.household) })
+    },
+  })
+}
+
+/** Confirma un ticket ya analizado: a partir de aqui existe una Purchase real. */
+export function useConfirmarTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number }) => {
+      if (BACKEND_LISTO) return api.post<Receipt>(`${BASE}/receipt/${input.id}/confirmar/`)
+
+      const ticket = almacen.receipts.find((t) => t.id === input.id)
+      if (!ticket) throw new Error('Ticket no encontrado')
+      if (ticket.status === 'confirmado') return retraso(ticket) // idempotente, igual que el backend real
+      if (ticket.status !== 'analizado') throw new Error('El ticket todavía no está analizado.')
+
+      const lineas = ticket.parsed.lines ?? []
+      const purchaseId = siguienteId()
+      almacen.purchases.push({
+        id: purchaseId,
+        household: ticket.household,
+        date: ticket.date ?? today(),
+        description: `Ticket ${ticket.supermarket || 'sin identificar'}`,
+        supermarket: ticket.supermarket,
+        covers_days: 7,
+        shopping_list: null,
+        trip: null,
+      })
+      for (const linea of lineas) {
+        const amount = Number(String(linea.amount).replace(',', '.')) || 0
+        almacen.purchaseItems.push({
+          id: siguienteId(),
+          purchase: purchaseId,
+          ingredient: null,
+          name: linea.name,
+          amount,
+          unit: linea.unit,
+          price: linea.total,
+          purchased: true,
+          is_shared: true,
+          member: null,
+          shopping_list_item: null,
+        })
+        // Igual que confirmar de verdad: lo comprado tambien entra en la despensa.
+        almacen.pantryItems.push({
+          id: siguienteId(),
+          household: ticket.household,
+          ingredient: null,
+          name: linea.name,
+          unit: linea.unit,
+          amount,
+        })
+      }
+
+      ticket.status = 'confirmado'
+      ticket.purchase = purchaseId
+      ticket.updated_at = new Date().toISOString()
+      return retraso(ticket)
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: claves.receipt(ticket.id) })
+      qc.invalidateQueries({ queryKey: claves.receipts(ticket.household) })
+      // Confirmar crea una Purchase real -- y con ella toca Despensa, Resumen
+      // y puede marcar lineas de la Lista si el ticket venia de una compra en
+      // curso. Mismo motivo y mismas invalidaciones que useMarcarComprado
+      // (ver su comentario): no se sabe aqui el id de esa Purchase ni si tocó
+      // alguna linea de la lista, asi que se invalidan los prefijos enteros.
+      qc.invalidateQueries({ queryKey: ['compra', 'purchases'] })
+      qc.invalidateQueries({ queryKey: ['compra', 'purchase-items'] })
+      qc.invalidateQueries({ queryKey: ['compra', 'breakdown'] })
+      qc.invalidateQueries({ queryKey: prefijos.pantryItems })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+      qc.invalidateQueries({ queryKey: ['compra', 'shopping-list-items'] })
+    },
+  })
+}
+
+/** Borra un ticket. No toca la Purchase que ya se hubiera creado al confirmarlo. */
+export function useEliminarTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/receipt/${input.id}/`)
+        return input
+      }
+      const idx = almacen.receipts.findIndex((t) => t.id === input.id)
+      if (idx >= 0) almacen.receipts.splice(idx, 1)
+      return retraso(input)
+    },
+    onSuccess: ({ id, household }) => {
+      qc.removeQueries({ queryKey: claves.receipt(id) })
+      qc.invalidateQueries({ queryKey: claves.receipts(household) })
+    },
   })
 }
 

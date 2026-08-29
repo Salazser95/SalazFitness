@@ -19,6 +19,7 @@ router.register(
 router.register(r'salaz/pantry-item', views.PantryItemViewSet, basename='salaz-pantry-item')
 router.register(r'salaz/purchase', views.PurchaseViewSet, basename='salaz-purchase')
 router.register(r'salaz/purchase-item', views.PurchaseItemViewSet, basename='salaz-purchase-item')
+router.register(r'salaz/receipt', views.ReceiptViewSet, basename='salaz-receipt')
 router.register(r'salaz/recipe', views.RecipeViewSet, basename='salaz-recipe')
 router.register(
     r'salaz/recipe-ingredient',

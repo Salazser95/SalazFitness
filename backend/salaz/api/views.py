@@ -12,7 +12,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
-from salaz import frescura
+from salaz import frescura, tickets
 from salaz.api.serializers import (
     DeviceStateSerializer,
     FavoriteIngredientSerializer,
@@ -22,6 +22,7 @@ from salaz.api.serializers import (
     PantryItemSerializer,
     PurchaseItemSerializer,
     PurchaseSerializer,
+    ReceiptSerializer,
     RecentIngredientSerializer,
     RecipeIngredientSerializer,
     RecipeSerializer,
@@ -44,6 +45,7 @@ from salaz.models import (
     PantryItem,
     Purchase,
     PurchaseItem,
+    Receipt,
     RecentIngredient,
     Recipe,
     RecipeIngredient,
@@ -82,6 +84,22 @@ def _flag(datos, clave: str, por_defecto: bool) -> bool:
     if isinstance(valor, bool):
         return valor
     return str(valor).strip().lower() in ('1', 'true', 'yes', 'si', 'on')
+
+
+def _decimal_o_cero(valor) -> Decimal:
+    """
+    Un decimal del JSON del ticket, redondeado a dos cifras.
+
+    El parser puede dar tres decimales en los pesos ('0.760 kg'), y los
+    campos de PurchaseItem son de dos: sin cuantizar aqui, guardar depende
+    del motor de base de datos (unos redondean y otros truncan). Un valor
+    ilegible cuenta como cero en vez de reventar el volcado entero: el
+    usuario revisa las lineas antes de confirmar.
+    """
+    try:
+        return Decimal(str(valor)).quantize(Decimal('0.01'))
+    except (TypeError, ValueError, ArithmeticError):
+        return Decimal('0.00')
 
 
 User = get_user_model()
@@ -510,6 +528,174 @@ class PurchaseItemViewSet(viewsets.ModelViewSet):
         if instance.purchased:
             _ajustar_despensa(instance, sumar=False)
         instance.delete()
+
+
+class ReceiptViewSet(viewsets.ModelViewSet):
+    """
+    Tickets de la compra subidos como foto. Ver la nota larga en
+    salaz/models/receipt.py sobre el camino foto -> texto -> datos.
+
+    Sobre la transcripcion automatica de la foto: hoy NO se hace aqui. El
+    entorno no trae OCR (tesseract) ni una clave de API de vision, asi que
+    el endpoint acepta el texto ya transcrito en `markdown` -- pegado o
+    corregido a mano por el usuario. El resto de la cadena (analizar el
+    texto, revisar, confirmar, volcar a compras y despensa) no depende de
+    como se haya obtenido ese texto, asi que enchufar mas adelante un
+    proveedor de vision u OCR es rellenar `markdown` antes de llamar a
+    /analizar/, sin tocar nada de lo de aqui abajo.
+    """
+
+    serializer_class = ReceiptSerializer
+    is_private = True
+    filterset_fields = ('household', 'status')
+    # Mismo motivo que en RecipeViewSet: wger fija los parsers a solo JSON y
+    # aqui se sube un fichero.
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Receipt.objects.none()
+        return Receipt.objects.filter(_acceso_hogar(self.request.user)).distinct()
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
+        return super().create(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'])
+    def analizar(self, request, pk=None):
+        """
+        Pasa el texto del ticket por el parser y guarda el resultado para que
+        el usuario lo revise. No toca compras ni despensa: eso es /confirmar/.
+
+        Acepta `markdown` en el cuerpo para reemplazar la transcripcion en la
+        misma llamada, que es el caso normal: se corrige una linea mal leida
+        y se vuelve a analizar.
+        """
+        receipt = self.get_object()
+        if receipt.status == Receipt.CONFIRMADO:
+            return Response(
+                {'detail': 'Este ticket ya está confirmado. Para rehacerlo, elimina antes su compra.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if 'markdown' in request.data:
+            receipt.markdown = str(request.data.get('markdown') or '')
+
+        if not receipt.markdown.strip():
+            receipt.status = Receipt.ERROR
+            receipt.error = 'No hay texto que analizar. Pega la transcripción del ticket.'
+            receipt.parsed = {}
+            receipt.save()
+            return Response(self.get_serializer(receipt).data, status=status.HTTP_400_BAD_REQUEST)
+
+        ticket = tickets.parsear_ticket(receipt.markdown)
+        receipt.parsed = tickets.a_json(ticket)
+        receipt.supermarket = ticket.supermarket
+        receipt.date = ticket.date
+        receipt.total = ticket.total
+        if ticket.lines:
+            receipt.status = Receipt.ANALIZADO
+            receipt.error = ''
+        else:
+            # Sin lineas no hay nada que confirmar, pero el texto se conserva
+            # para que el usuario lo corrija y lo vuelva a intentar.
+            receipt.status = Receipt.ERROR
+            receipt.error = 'No se ha reconocido ninguna línea de producto en el texto.'
+        receipt.save()
+        return Response(self.get_serializer(receipt).data)
+
+    @action(detail=True, methods=['post'])
+    def confirmar(self, request, pk=None):
+        """
+        Vuelca el ticket ya analizado a una compra real: crea la Purchase y
+        sus lineas, casa lo que pueda contra la lista de la compra activa y
+        deja que la despensa se ajuste por el mismo camino de siempre.
+
+        Es idempotente: si el ticket ya tiene compra, devuelve la que hay sin
+        crear otra. Confirmar es lo unico que mueve datos fuera del ticket,
+        y por eso es un paso aparte de analizar.
+        """
+        receipt = self.get_object()
+        if receipt.purchase_id:
+            return Response(self.get_serializer(receipt).data)
+        if receipt.status != Receipt.ANALIZADO:
+            return Response(
+                {'detail': 'Analiza el ticket antes de confirmarlo.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        lineas = receipt.parsed.get('lines') or []
+        if not lineas:
+            return Response(
+                {'detail': 'El ticket no tiene líneas que volcar.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            purchase = Purchase.objects.create(
+                household=receipt.household,
+                date=receipt.date or timezone.now().date(),
+                description=f'Ticket {receipt.supermarket}'.strip(),
+                supermarket=receipt.supermarket,
+            )
+
+            pendientes = self._lineas_de_lista_pendientes(receipt.household)
+
+            for linea in lineas:
+                nombre = str(linea.get('name') or '').strip()
+                item = PurchaseItem(
+                    purchase=purchase,
+                    name=nombre,
+                    amount=_decimal_o_cero(linea.get('amount')),
+                    unit=str(linea.get('unit') or 'unit'),
+                    price=_decimal_o_cero(linea.get('total')),
+                    purchased=True,
+                )
+                # Casar con la lista se hace por nombre normalizado (misma
+                # funcion que usa el generador de listas): el ticket no trae
+                # el id del producto, solo como lo imprime el supermercado.
+                de_la_lista = pendientes.pop(frescura.normalizar_nombre(nombre), None)
+                if de_la_lista is not None:
+                    item.shopping_list_item = de_la_lista
+                item.save()
+                _ajustar_despensa(item, sumar=True)
+
+                if de_la_lista is not None:
+                    # Se marca por el ORM a proposito, NO por el ViewSet de la
+                    # lista: pasar por ahi dispararia _sincronizar_compra_real
+                    # y crearia una SEGUNDA compra para lo que ya acabamos de
+                    # meter en esta, duplicando el gasto y la despensa.
+                    de_la_lista.purchased = True
+                    de_la_lista.save(update_fields=['purchased'])
+
+            receipt.purchase = purchase
+            receipt.status = Receipt.CONFIRMADO
+            receipt.error = ''
+            receipt.save()
+
+        return Response(self.get_serializer(receipt).data, status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _lineas_de_lista_pendientes(household) -> dict:
+        """
+        Lo que aun esta por comprar en la lista activa del hogar, indexado por
+        nombre normalizado, para casarlo con las lineas del ticket.
+
+        Se excluyen las que ya tienen PurchaseItem enlazada: el enlace es uno
+        a uno, y volver a usarla reventaria con un IntegrityError.
+        """
+        lista = ShoppingList.objects.filter(household=household).order_by('-created').first()
+        if lista is None:
+            return {}
+        pendientes = {}
+        for item in lista.items.filter(purchased=False, purchase_item__isnull=True):
+            # El primero gana: si el mismo producto sale en varias tandas, la
+            # compra de hoy solo cubre una de ellas.
+            pendientes.setdefault(frescura.normalizar_nombre(item.name), item)
+        return pendientes
 
 
 class RecipeViewSet(viewsets.ModelViewSet):
