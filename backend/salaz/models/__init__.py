@@ -1,4 +1,5 @@
 from salaz.models.account import AccountVerification
+from salaz.models.change_feed import ChangeFeed
 from salaz.models.device_state import DeviceState
 from salaz.models.favorite_ingredient import FavoriteIngredient
 from salaz.models.household import Household
@@ -22,6 +23,7 @@ from salaz.models.workout_session_draft import WorkoutSessionDraft
 
 __all__ = [
     'AccountVerification',
+    'ChangeFeed',
     'DeviceState',
     'FavoriteIngredient',
     'Household',

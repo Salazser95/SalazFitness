@@ -36,7 +36,9 @@ function notifySessionExpired(): void {
 // Una sola peticion de refresco en vuelo, aunque fallen diez llamadas a la vez.
 let refreshInFlight: Promise<string | null> | null = null
 
-async function refreshAccessToken(): Promise<string | null> {
+// Exportada para que lib/tiempoReal.ts pueda usarla tal cual al recibir un
+// 401 del endpoint de eventos: mismo mecanismo de refresco, sin duplicarlo.
+export async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight
 
   refreshInFlight = (async () => {

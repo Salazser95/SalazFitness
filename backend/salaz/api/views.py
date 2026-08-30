@@ -1,15 +1,19 @@
+import json
+import time
 from datetime import date, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from django.db.models import Q
+from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from salaz import frescura, tickets
@@ -37,6 +41,7 @@ from salaz.api.serializers import (
 )
 from salaz.generador_lista import anadir_cesta, generar_lista, productos_del_plan
 from salaz.models import (
+    ChangeFeed,
     DeviceState,
     FavoriteIngredient,
     Household,
@@ -1341,3 +1346,143 @@ class DeviceStateViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# --- Sincronizacion en tiempo real (SSE) --------------------------------
+#
+# No es WebSocket a proposito: lo unico que necesita el cliente es un "algo
+# ha cambiado, refresca ese recurso" (ver la nota larga en
+# salaz/models/change_feed.py). Channels+ASGI+Redis para esto seria
+# desproporcionado en un portatil que hace de servidor; con Server-Sent
+# Events sobre el mismo WSGI/gunicorn de siempre basta.
+#
+# Las dos funciones de abajo (_cambios_desde y _formatear_evento) son puras
+# a proposito: son la parte determinista de este endpoint, y probarlas
+# directamente evita que los tests tengan que consumir el stream infinito
+# de eventos_sse (ver salaz/tests/test_tiempo_real.py).
+
+SSE_DURACION_MAXIMA = 5 * 60  # segundos
+SSE_INTERVALO_SONDEO = 2  # segundos entre cada consulta de cambios nuevos
+SSE_INTERVALO_LATIDO = 20  # segundos sin cambios antes de mandar un ping
+
+
+def _hogares_visibles(user):
+    """
+    Los Household a los que el usuario tiene acceso: dueno o miembro vinculado.
+
+    No usa _acceso_hogar(user) tal cual: ese filtro esta pensado para un
+    modelo que CUELGA de un hogar (campo `household`, o `prefijo` hasta
+    el), y Household no tiene ese campo sobre si mismo (ver el mismo caso
+    especial en _accesible_o_404 mas arriba).
+    """
+    return Household.objects.filter(Q(owner=user) | Q(members__user=user)).distinct()
+
+
+def _cambios_desde(cursor: int, hogares_ids):
+    """
+    Filas de ChangeFeed con id > cursor, limitadas a los hogares dados.
+
+    `hogares_ids` es siempre el resultado de _hogares_visibles(user), nunca
+    "todos los hogares": es lo que garantiza que un usuario jamas vea un
+    cambio de un hogar al que no tiene acceso, aunque el cursor que mande
+    sea mas bajo que cambios de otros hogares que ya existan en la tabla.
+    """
+    return list(
+        ChangeFeed.objects.filter(household_id__in=hogares_ids, id__gt=cursor).order_by('id')
+    )
+
+
+def _formatear_evento(fila: ChangeFeed) -> str:
+    """
+    Una fila de ChangeFeed como evento SSE.
+
+    La linea en blanco al final es obligatoria en el formato SSE (marca el
+    fin del evento); sin ella el navegador se queda esperando mas lineas y
+    no entrega nada al `EventSource`/lector de stream del cliente.
+    """
+    datos = json.dumps({'entity': fila.entity, 'household': fila.household_id})
+    return f'id: {fila.pk}\nevent: cambio\ndata: {datos}\n\n'
+
+
+def _cursor_inicial(request) -> int:
+    """
+    De donde arranca el stream: `Last-Event-ID` (lo que manda el navegador
+    solo al reconectar un EventSource) o `?desde=` en la query (lo que usa
+    este frontend, que reconecta a mano con fetch+streams en vez de
+    EventSource). Si no viene ninguno, arranca en el ultimo id que ya
+    existe: solo cambios NUEVOS a partir de la conexion, nunca se reenvia
+    el historial entero al conectar.
+    """
+    crudo = request.headers.get('Last-Event-ID') or request.query_params.get('desde')
+    try:
+        return int(crudo)
+    except (TypeError, ValueError):
+        ultimo = ChangeFeed.objects.order_by('-id').values_list('id', flat=True).first()
+        return ultimo or 0
+
+
+def _stream_eventos(user, cursor_inicial: int):
+    """
+    Generador del cuerpo de la respuesta SSE: sondea cambios nuevos cada
+    `SSE_INTERVALO_SONDEO` segundos y los va emitiendo, con un latido cada
+    `SSE_INTERVALO_LATIDO` segundos si no hay nada que avisar.
+
+    Corta la conexion pasados `SSE_DURACION_MAXIMA` segundos a proposito: un
+    portatil haciendo de servidor tiene pocos workers de gunicorn, y sin
+    tope de vida cada cliente con una pestana abierta ocuparia uno para
+    siempre, hasta dejar la API sin workers libres para el resto de
+    peticiones. El cliente reconecta solo (fetch+streams, no EventSource),
+    asi que cortar aqui es invisible salvo por un hueco de reconexion de una
+    fraccion de segundo.
+    """
+    inicio = time.monotonic()
+    cursor = cursor_inicial
+    ultimo_latido = time.monotonic()
+    while time.monotonic() - inicio < SSE_DURACION_MAXIMA:
+        # Cada vuelta del bucle vive segundos (no milisegundos): sin cerrar
+        # aqui las conexiones a base de datos que ya caducaron (por
+        # CONN_MAX_AGE), un stream de varios minutos se queda con una
+        # conexion abierta y sin usar la mayor parte del tiempo, y unos
+        # cuantos clientes conectados a la vez agotarian el pool de
+        # conexiones disponibles para el resto de peticiones.
+        close_old_connections()
+        hogares_ids = list(_hogares_visibles(user).values_list('id', flat=True))
+        cambios = _cambios_desde(cursor, hogares_ids)
+        if cambios:
+            for fila in cambios:
+                yield _formatear_evento(fila)
+                cursor = fila.pk
+            ultimo_latido = time.monotonic()
+        elif time.monotonic() - ultimo_latido >= SSE_INTERVALO_LATIDO:
+            # Comentario SSE (la linea que empieza por ':' no es un evento):
+            # sin este latido, proxies y navegadores moviles dan la conexion
+            # por muerta y la cierran mucho antes de los 5 minutos de tope.
+            yield ': ping\n\n'
+            ultimo_latido = time.monotonic()
+        time.sleep(SSE_INTERVALO_SONDEO)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def eventos_sse(request):
+    """
+    GET /api/v2/salaz/events/ — sincronizacion en tiempo real por SSE.
+
+    Solo notifica "algo cambio en esta entidad, de este hogar": el cliente
+    reacciona refrescando ese recurso por la API normal, que ya hace su
+    propio filtrado de permisos. Requiere autenticacion (hereda el esquema
+    JWT del resto de la API via @permission_classes de DRF); los hogares que
+    puede ver son siempre los de _hogares_visibles(request.user), nunca
+    todos los que haya en la tabla.
+    """
+    response = StreamingHttpResponse(
+        _stream_eventos(request.user, _cursor_inicial(request)),
+        content_type='text/event-stream',
+    )
+    # Sin estas tres cabeceras, nginx y Cloudflare bufean la respuesta hasta
+    # que se cierra o se llena el buffer, y el stream nunca llega al
+    # cliente en tiempo real (ver deploy/, que es donde vive esa capa).
+    response['Cache-Control'] = 'no-cache'
+    response['X-Accel-Buffering'] = 'no'
+    response['Connection'] = 'keep-alive'
+    return response

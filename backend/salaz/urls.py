@@ -64,4 +64,6 @@ router.register(r'salaz/device-state', views.DeviceStateViewSet, basename='salaz
 
 urlpatterns = [
     path('api/v2/', include(router.urls)),
+    # Vista suelta (no un ViewSet): sincronizacion en tiempo real por SSE.
+    path('api/v2/salaz/events/', views.eventos_sse, name='salaz-eventos'),
 ]

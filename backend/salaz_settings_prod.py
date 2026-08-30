@@ -54,6 +54,13 @@ if not SECRET_KEY:
     raise RuntimeError('Falta SALAZ_SECRET_KEY. Ver docs/DESPLIEGUE.md.')
 
 ALLOWED_HOSTS = _lista('SALAZ_ALLOWED_HOSTS') or ['localhost', '127.0.0.1']
+# Django ya entiende un valor que empieza por punto como comodin de
+# subdominio (".trycloudflare.com" acepta cualquier-cosa.trycloudflare.com),
+# no hace falta tocar nada aqui para que funcione: es lo que permite usar el
+# modo rapido del tunel de Cloudflare, cuya URL cambia cada vez que se
+# reinicia, sin tener que editar SALAZ_ALLOWED_HOSTS en cada prueba. Aceptalo
+# solo mientras pruebas: deja pasar cualquier tunel rapido, no solo el tuyo.
+# Ver deploy/.env.example y docs/ACCESO-REMOTO.md.
 
 # Donde vive la app. Es lo que se pone en el enlace del correo de verificacion
 # (ver salaz/api/cuentas.py) y tiene que ser la direccion que abre el usuario,
@@ -114,8 +121,20 @@ WGER_SETTINGS['EMAIL_FROM'] = DEFAULT_FROM_EMAIL
 
 CSRF_TRUSTED_ORIGINS = _lista('SALAZ_CSRF_ORIGINS') or [f'https://{h}' for h in ALLOWED_HOSTS]
 
-# El TLS lo termina nginx, asi que Django ve http y hay que decirle que mire la
-# cabecera que le pone el proxy. Sin esto, las redirecciones salen en http.
+# El TLS no lo termina Django: lo termina Cloudflare (con el tunel) o Caddy
+# (con un dominio propio), y nginx en medio habla http de puertas para
+# adentro. Por eso Django tiene que fiarse de la cabecera que le manda el
+# proxy en vez de mirar la conexion en la que llego. Sin esto, las
+# redirecciones a https saldrian siempre en http.
+#
+# El que esa cabecera diga la verdad depende de deploy/nginx.conf: ahi es
+# donde se respeta el X-Forwarded-Proto que ya trae la peticion en vez de
+# pisarlo con el "http" fijo con el que nginx ve su propia conexion (ver el
+# comentario grande al principio de ese fichero). Con eso en su sitio, no hay
+# riesgo de bucle de redirecciones al usar el tunel: la peticion le llega a
+# nginx por http interno, pero el X-Forwarded-Proto que reenvia a Django ya
+# dice "https", asi que SECURE_SSL_REDIRECT no vuelve a redirigir algo que ya
+# iba por https.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_SSL_REDIRECT = _bool('SALAZ_FORCE_HTTPS', True)
 SESSION_COOKIE_SECURE = True

@@ -49,6 +49,11 @@ services:
       SALAZ_ALLOWED_HOSTS: ${SALAZ_ALLOWED_HOSTS}
       SALAZ_APP_URL: ${SALAZ_APP_URL}
       SALAZ_FORCE_HTTPS: ${SALAZ_FORCE_HTTPS:-1}
+      # En blanco, Django la calcula sola a partir de SALAZ_ALLOWED_HOSTS. Se
+      # pasa aparte (ver deploy/.env.example) porque hace falta explicita
+      # cuando SALAZ_ALLOWED_HOSTS lleva un comodin, como con el tunel rapido
+      # de Cloudflare.
+      SALAZ_CSRF_ORIGINS: ${SALAZ_CSRF_ORIGINS:-}
       SALAZ_DB_NAME: ${SALAZ_DB_NAME}
       SALAZ_DB_USER: ${SALAZ_DB_USER}
       SALAZ_DB_PASSWORD: ${SALAZ_DB_PASSWORD}
