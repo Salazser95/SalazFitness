@@ -101,11 +101,26 @@ EMAIL_USE_SSL = _bool('SALAZ_EMAIL_SSL', False)
 DEFAULT_FROM_EMAIL = _env('SALAZ_EMAIL_FROM', 'SalazFitness <no-reply@localhost>')
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
+# Valvula de escape para probar en local (ver docs/ACCESO-REMOTO.md): con
+# SALAZ_EMAIL_CONSOLA=1 los correos no se envian, se imprimen en los logs del
+# contenedor. Sirve para levantar la app sin tener credenciales SMTP a mano y
+# entrar con el usuario de prueba (SALAZ_CREAR_USUARIO_PRUEBA), que no pasa
+# por la verificacion.
+#
+# Es SOLO para pruebas: con esto, cualquiera que se registre no recibira su
+# correo de confirmacion y no podra entrar. Para uso de verdad, SMTP.
+EMAIL_CONSOLA = _bool('SALAZ_EMAIL_CONSOLA', False)
+if EMAIL_CONSOLA:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 # Sin SMTP configurado no se puede verificar a nadie, y una cuenta que no se
 # puede verificar es una cuenta que no puede entrar. Mejor fallar al arrancar
 # que descubrirlo con el primer registro.
-if not EMAIL_HOST:
-    raise RuntimeError('Falta SALAZ_EMAIL_HOST: sin correo no hay verificacion de cuentas.')
+if not EMAIL_HOST and not EMAIL_CONSOLA:
+    raise RuntimeError(
+        'Falta SALAZ_EMAIL_HOST: sin correo no hay verificacion de cuentas. '
+        'Para una prueba local sin SMTP, pon SALAZ_EMAIL_CONSOLA=1.'
+    )
 
 # ------------------------------------------------------------------- wger
 

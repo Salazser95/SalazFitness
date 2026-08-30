@@ -1,0 +1,29 @@
+# Construye la PWA y la sirve con nginx, todo dentro de Docker.
+#
+# Antes este servicio era solo `image: nginx` con un bind mount de
+# ../web/dist, lo que obligaba a tener Node instalado en la maquina y a
+# acordarse de ejecutar `npm run build` antes de levantar nada. Metiendo la
+# compilacion aqui, para poner el servidor en marcha desde cero solo hace
+# falta Docker: ni Node, ni Python, ni MySQL en el equipo.
+#
+# No se fija VITE_API_BASE a proposito: sin esa variable la app usa rutas
+# relativas (ver web/src/lib/config.ts), y como este mismo nginx sirve la PWA
+# y hace de proxy de /api en el mismo origen, funciona con cualquier
+# direccion -- IP local, tunel de Cloudflare o dominio propio -- sin volver a
+# compilar. Es justo lo que hace falta con el modo rapido del tunel, donde la
+# URL cambia en cada arranque.
+
+FROM node:22-alpine AS build
+WORKDIR /app
+
+# Primero solo los manifiestos: mientras no cambien las dependencias, Docker
+# reutiliza la capa de npm ci y la compilacion no se pasa minutos bajando
+# paquetes otra vez.
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+
+COPY web/ ./
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
