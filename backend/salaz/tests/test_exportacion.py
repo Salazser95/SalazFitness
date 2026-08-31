@@ -148,10 +148,23 @@ class ExportarImportarTests(SalazApiTestCase):
     )
     def test_cliente_interno_no_lo_tumba_la_redireccion_a_https(self):
         # Regresion: en produccion SALAZ_FORCE_HTTPS=1 activa
-        # SECURE_SSL_REDIRECT, y SecurityMiddleware contesta 301 a toda
-        # peticion que no diga "https" -- el cliente interno no pasa por
-        # nginx, asi que tiene que decir el mismo "https" que diria nginx.
+        # SECURE_SSL_REDIRECT. Con rest_framework.test.APIClient esto hacia
+        # que SecurityMiddleware contestara 301 a toda peticion del cliente
+        # interno (nunca pasa por nginx, nunca lleva las cabeceras que
+        # pondria un proxy de verdad). ClienteInterno llama a la vista
+        # directamente (django.urls.resolve + APIRequestFactory), sin pasar
+        # por ningun middleware, asi que este ajuste ya no puede afectarle.
         cliente = _cliente_para(self.origen, 'ejemplo.trycloudflare.com')
+        self.assertEqual(cliente.get('/api/v2/weightentry/').status_code, 200)
+
+    def test_cliente_interno_admite_un_host_con_puerto(self):
+        # Regresion: con SERVER_NAME (usado antes), Django reconstruye el
+        # Host pegandole el puerto -- si `host` ya trae uno (como
+        # "localhost:8000", tipico en un despliegue sin tunel) quedaba
+        # duplicado ("localhost:8000:80") y ALLOWED_HOSTS lo rechazaba
+        # incluso en '*'. ClienteInterno usa HTTP_HOST, que no tiene ese
+        # problema.
+        cliente = _cliente_para(self.origen, 'localhost:8000')
         self.assertEqual(cliente.get('/api/v2/weightentry/').status_code, 200)
 
     @override_settings(

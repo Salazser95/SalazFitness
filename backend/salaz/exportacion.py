@@ -12,16 +12,32 @@ exportacion incluye el NOMBRE de cada ejercicio y el alimento completo (no
 solo su id), y la importacion resuelve cada uno contra el catalogo de la
 instalacion donde se importa antes de escribir nada que dependa de el.
 
-Por que via APIClient y no leyendo/escribiendo los modelos de wger
-directamente: reutiliza los mismos ViewSets y serializers que ya estan
-probados y en produccion (las mismas rutas que usa el frontend, ver
-web/src/features/entreno/api.ts, nutricion/api.ts y docs/API-CONTRACT.md), en
-vez de reconstruir a mano la logica de creacion y arriesgarse a que un campo
-obligatorio o un efecto colateral del ViewSet real (por ejemplo, quien crea
-un Household queda como su owner automaticamente) se quede sin replicar.
-force_authenticate deja suplantar al usuario sin pasar por login, que es
-justo lo que hace ya el resto de la suite de pruebas de este proyecto (ver
-salaz/tests/test_api.py).
+Por que via los mismos ViewSets/serializers de wger (llamados directamente,
+ver ClienteInterno mas abajo) y no leyendo/escribiendo los modelos
+directamente: reutiliza toda la logica ya probada y en produccion (las
+mismas rutas que usa el frontend, ver web/src/features/entreno/api.ts,
+nutricion/api.ts y docs/API-CONTRACT.md), en vez de reconstruir a mano la
+logica de creacion y arriesgarse a que un campo obligatorio o un efecto
+colateral del ViewSet real (por ejemplo, quien crea un Household queda como
+su owner automaticamente) se quede sin replicar.
+
+Por que ClienteInterno (django.urls.resolve + APIRequestFactory) y no
+rest_framework.test.APIClient: las dos hacen lo mismo en lo esencial (llaman
+a la vista con force_authenticate), pero APIClient ejecuta la peticion a
+traves de TODA la cadena de middleware de Django -- exactamente donde viven
+las diferencias entre el entorno local y el del tunel (ALLOWED_HOSTS,
+SECURE_SSL_REDIRECT, y lo que se vaya anadiendo a salaz_settings_prod.py en
+el futuro). Ya nos ha mordido dos veces: un ALLOWED_HOSTS que rechazaba el
+Host de pruebas por defecto de APIClient, y despues un SECURE_SSL_REDIRECT
+que respondia una redireccion 301 en vez de ejecutar la vista, porque este
+cliente nunca pasa por nginx y nunca lleva las cabeceras que pone el proxy
+de verdad. django.urls.resolve() + APIRequestFactory llama directamente al
+callable de la vista (lo mismo que hace, por debajo, BaseHandler._get_response
+tras resolver la URL), sin ejecutar NINGUN middleware -- asi que ninguna
+diferencia de configuracion de seguridad entre local y produccion puede
+volver a colarse por ahi. force_authenticate deja suplantar al usuario sin
+pasar por login, igual que ya hace el resto de la suite de pruebas de este
+proyecto (ver salaz/tests/test_api.py).
 """
 
 from __future__ import annotations
@@ -29,55 +45,98 @@ from __future__ import annotations
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-from rest_framework.test import APIClient
+from django.urls import Resolver404, resolve
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 VERSION_EXPORTACION = 1
 
 
-def _cliente_para(user, host: str) -> APIClient:
-    # Dos ajustes por el mismo motivo: este cliente hace peticiones DENTRO del
-    # proceso de Django, sin pasar por nginx ni por el tunel, asi que nada de
-    # lo que ponen esos dos de verdad (Host, X-Forwarded-Proto) llega solo.
-    #
-    # SERVER_NAME (no HTTP_HOST) porque asi lo hereda cada peticion que haga
-    # este cliente sin tener que repetirlo en cada .get()/.post(): APIClient
-    # rellena el Host de sus peticiones internas con "testserver" si no se
-    # le dice otra cosa, y ALLOWED_HOSTS en un servidor de verdad (por
-    # ejemplo, solo ".trycloudflare.com") rechaza eso con un 400 en texto
-    # plano -- que ni siquiera es un Response de DRF, asi que revienta con
-    # AttributeError en cuanto se lee `.data` (confirmado con el traceback
-    # real). En local no se nota porque ALLOWED_HOSTS esta en '*'.
-    #
-    # HTTP_X_FORWARDED_PROTO='https' porque en produccion SALAZ_FORCE_HTTPS=1
-    # activa SECURE_SSL_REDIRECT, y SecurityMiddleware mira esa cabecera (ver
-    # SECURE_PROXY_SSL_HEADER en salaz_settings_prod.py) para saber si la
-    # peticion ya iba por https. nginx se la pone a las peticiones reales; una
-    # peticion de este cliente sin ella parece "http" y SecurityMiddleware
-    # responde una redireccion 301 en vez de ejecutar la vista -- que vuelve a
-    # reventar igual que el caso de arriba, porque un 301 tampoco tiene
-    # `.data`. En local no se nota porque SECURE_SSL_REDIRECT esta a False.
-    cliente = APIClient(SERVER_NAME=host, HTTP_X_FORWARDED_PROTO='https')
-    cliente.force_authenticate(user=user)
-    return cliente
+class ClienteInterno:
+    """
+    Llama directamente al ViewSet de una ruta de la API, sin pasar por el
+    manejador WSGI ni por ningun middleware (ver el docstring del modulo
+    para el porque). Expone solo get/post/patch: lo unico que usa este
+    fichero de un APIClient normal.
+    """
+
+    def __init__(self, user, host: str):
+        self.user = user
+        self.factory = APIRequestFactory()
+        self.cabeceras = {
+            # HTTP_HOST, no SERVER_NAME: SERVER_NAME hace que Django
+            # reconstruya el Host pegandole el puerto (get_host(), en
+            # django/http/request.py), y si `host` ya trae uno (por ejemplo
+            # "localhost:8000") queda duplicado ("localhost:8000:80") y
+            # ALLOWED_HOSTS lo rechaza incluso estando en '*'. HTTP_HOST se
+            # usa tal cual, igual que hace nginx con la cabecera Host real.
+            'HTTP_HOST': host,
+            # request.scheme la lee para construir URIs absolutas (los
+            # enlaces next/previous de la paginacion, entre otras cosas):
+            # sin esto saldrian en http aunque el tunel sea https. Ya no
+            # hace falta para esquivar SecurityMiddleware (no se ejecuta),
+            # pero si para que esas URLs sean coherentes.
+            'HTTP_X_FORWARDED_PROTO': 'https',
+            # Sin cabecera Accept, la negociacion de contenido de DRF puede
+            # elegir el renderer navegable (HTML) en vez de JSON segun el
+            # orden de DEFAULT_RENDERER_CLASSES -- ademas de mas pesado,
+            # get_extra_action_url_map() de ese renderer revienta si
+            # request.resolver_match es None (ver mas abajo).
+            'HTTP_ACCEPT': 'application/json',
+        }
+
+    def _llamar(self, metodo: str, ruta: str, cuerpo=None, formato: str = 'json'):
+        try:
+            match = resolve(ruta.split('?')[0])
+        except Resolver404:
+            raise ValueError(f'{metodo.upper()} {ruta}: la ruta no existe') from None
+
+        if metodo == 'get':
+            peticion = self.factory.get(ruta, **self.cabeceras)
+        else:
+            peticion = getattr(self.factory, metodo)(ruta, cuerpo, format=formato, **self.cabeceras)
+
+        # BaseHandler.resolve_request lo rellena en una peticion real antes
+        # de llamar a la vista; sin el, algunos metodos de ViewSetMixin
+        # (get_extra_action_url_map) revientan con AttributeError.
+        peticion.resolver_match = match
+        force_authenticate(peticion, user=self.user)
+
+        respuesta = match.func(peticion, *match.args, **match.kwargs)
+        if hasattr(respuesta, 'render'):
+            respuesta.render()
+        return respuesta
+
+    def get(self, ruta: str):
+        return self._llamar('get', ruta)
+
+    def post(self, ruta: str, cuerpo, format: str = 'json'):
+        return self._llamar('post', ruta, cuerpo, format)
+
+    def patch(self, ruta: str, cuerpo, format: str = 'json'):
+        return self._llamar('patch', ruta, cuerpo, format)
+
+
+def _cliente_para(user, host: str) -> ClienteInterno:
+    return ClienteInterno(user, host)
 
 
 def _detalle(res) -> str:
-    # res.data solo existe en un Response de DRF. Una redireccion de
-    # SecurityMiddleware o un 400 de ALLOWED_HOSTS son HttpResponse a secas
-    # -- sin esto, un fallo de configuracion (no del dato en si) revienta con
-    # un AttributeError que tapa la causa real (ya nos paso dos veces).
+    # Red de seguridad: res.data solo existe en un Response de DRF. Si
+    # alguna vista devolviera algo que no lo es, esto evita que el propio
+    # mensaje de error reviente con un AttributeError que tapa la causa real
+    # (nos paso dos veces con el APIClient anterior).
     datos = getattr(res, 'data', None)
     return str(datos) if datos is not None else res.content[:300].decode('utf-8', 'replace')
 
 
-def _get(cliente: APIClient, ruta: str) -> Any:
+def _get(cliente: ClienteInterno, ruta: str) -> Any:
     res = cliente.get(ruta)
     if res.status_code != 200:
         raise ValueError(f'GET {ruta} -> {res.status_code}: {_detalle(res)}')
     return res.data
 
 
-def _get_todo(cliente: APIClient, ruta: str, limite_paginas: int = 200) -> list[dict]:
+def _get_todo(cliente: ClienteInterno, ruta: str, limite_paginas: int = 200) -> list[dict]:
     elementos: list[dict] = []
     siguiente: str | None = ruta
     for _ in range(limite_paginas):
@@ -102,7 +161,7 @@ def normalizar(texto: str) -> str:
 # ---------------------------------------------------------------- exportar
 
 
-def _nombre_ejercicio(cliente: APIClient, exercise_id: int) -> str | None:
+def _nombre_ejercicio(cliente: ClienteInterno, exercise_id: int) -> str | None:
     resultados = _get_todo(cliente, f'/api/v2/exercise-translation/?exercise={exercise_id}')
     es = next((t for t in resultados if t['language'] == 4), None)
     en = next((t for t in resultados if t['language'] == 2), None)
@@ -110,7 +169,7 @@ def _nombre_ejercicio(cliente: APIClient, exercise_id: int) -> str | None:
     return elegido['name'] if elegido else None
 
 
-def _exportar_entreno(cliente: APIClient) -> dict:
+def _exportar_entreno(cliente: ClienteInterno) -> dict:
     rutinas_export = []
     nombres_ejercicio: dict[int, str | None] = {}
 
@@ -149,7 +208,7 @@ def _exportar_entreno(cliente: APIClient) -> dict:
     }
 
 
-def _ingrediente_completo(cliente: APIClient, cache: dict[int, dict], ingredient_id: int | None) -> dict | None:
+def _ingrediente_completo(cliente: ClienteInterno, cache: dict[int, dict], ingredient_id: int | None) -> dict | None:
     if ingredient_id is None:
         return None
     if ingredient_id not in cache:
@@ -157,7 +216,7 @@ def _ingrediente_completo(cliente: APIClient, cache: dict[int, dict], ingredient
     return cache[ingredient_id]
 
 
-def _exportar_nutricion(cliente: APIClient) -> dict:
+def _exportar_nutricion(cliente: ClienteInterno) -> dict:
     cache_ing: dict[int, dict] = {}
     planes_export = []
     diario_export = []
@@ -197,7 +256,7 @@ def _exportar_nutricion(cliente: APIClient) -> dict:
     }
 
 
-def _exportar_compra(cliente: APIClient, user) -> dict | None:
+def _exportar_compra(cliente: ClienteInterno, user) -> dict | None:
     hogares = _get_todo(cliente, '/api/v2/salaz/household/')
     propios = [h for h in hogares if h.get('owner') == user.id]
     if not propios:
@@ -294,7 +353,7 @@ def _intentar(informe: Informe, contexto: str, fn: Callable[[], Any]) -> Any:
         return None
 
 
-def _post(cliente: APIClient, informe: Informe, contexto: str, ruta: str, cuerpo: dict) -> dict | None:
+def _post(cliente: ClienteInterno, informe: Informe, contexto: str, ruta: str, cuerpo: dict) -> dict | None:
     def hacer():
         res = cliente.post(ruta, cuerpo, format='json')
         if res.status_code not in (200, 201):
@@ -307,7 +366,7 @@ def _post(cliente: APIClient, informe: Informe, contexto: str, ruta: str, cuerpo
 class ResolverEjercicios:
     """Empareja por nombre; nunca crea un ejercicio nuevo (catalogo de la comunidad)."""
 
-    def __init__(self, cliente: APIClient, informe: Informe):
+    def __init__(self, cliente: ClienteInterno, informe: Informe):
         self.cliente = cliente
         self.informe = informe
         self._indice: dict[str, int] | None = None
@@ -332,7 +391,7 @@ class ResolverEjercicios:
 class ResolverIngredientes:
     """Empareja por codigo de barras o nombre; crea el alimento si no existe (a peticion del usuario)."""
 
-    def __init__(self, cliente: APIClient, informe: Informe):
+    def __init__(self, cliente: ClienteInterno, informe: Informe):
         self.cliente = cliente
         self.informe = informe
         self._cache: dict[str, int | None] = {}
@@ -389,7 +448,7 @@ class ResolverIngredientes:
         return resultado
 
 
-def _importar_perfil(cliente: APIClient, informe: Informe, datos: dict) -> None:
+def _importar_perfil(cliente: ClienteInterno, informe: Informe, datos: dict) -> None:
     perfil = datos.get('perfil')
     if not perfil:
         return
@@ -412,7 +471,7 @@ def _importar_perfil(cliente: APIClient, informe: Informe, datos: dict) -> None:
     informe.creado('perfil actualizado')
 
 
-def _importar_peso(cliente: APIClient, informe: Informe, datos: dict) -> None:
+def _importar_peso(cliente: ClienteInterno, informe: Informe, datos: dict) -> None:
     peso = datos.get('peso') or {}
     existentes = {e['date'] for e in _get_todo(cliente, '/api/v2/weightentry/')}
     for entrada in peso.get('entradas', []):
@@ -433,7 +492,7 @@ def _importar_peso(cliente: APIClient, informe: Informe, datos: dict) -> None:
             informe.creado('objetivo de peso')
 
 
-def _importar_entreno(cliente: APIClient, informe: Informe, datos: dict, resolver_ej: ResolverEjercicios) -> tuple[dict, dict]:
+def _importar_entreno(cliente: ClienteInterno, informe: Informe, datos: dict, resolver_ej: ResolverEjercicios) -> tuple[dict, dict]:
     entreno = datos.get('entreno') or {}
     rutinas_existentes = {(r['name'], r['start'], r['end']) for r in _get_todo(cliente, '/api/v2/routine/')}
     mapa_rutinas: dict[int, int] = {}
@@ -563,7 +622,7 @@ def _importar_entreno(cliente: APIClient, informe: Informe, datos: dict, resolve
     return mapa_rutinas, mapa_dias
 
 
-def _importar_nutricion(cliente: APIClient, informe: Informe, datos: dict, resolver_ing: ResolverIngredientes) -> None:
+def _importar_nutricion(cliente: ClienteInterno, informe: Informe, datos: dict, resolver_ing: ResolverIngredientes) -> None:
     nutricion = datos.get('nutricion') or {}
     # Por descripcion, no por id: el id de un plan ya existente en este
     # servidor no tiene por que coincidir con el del export.
@@ -642,7 +701,7 @@ def _importar_nutricion(cliente: APIClient, informe: Informe, datos: dict, resol
                 informe.creado(f'alimentos {etiqueta}')
 
 
-def _resolver_household(cliente: APIClient, informe: Informe, nombre_deseado: str) -> int | None:
+def _resolver_household(cliente: ClienteInterno, informe: Informe, nombre_deseado: str) -> int | None:
     hogares = _get_todo(cliente, '/api/v2/salaz/household/')
     existente = next((h for h in hogares if h['name'] == nombre_deseado), None)
     if existente:
@@ -651,7 +710,7 @@ def _resolver_household(cliente: APIClient, informe: Informe, nombre_deseado: st
     return creado['id'] if creado else None
 
 
-def _importar_compra(cliente: APIClient, informe: Informe, datos: dict, resolver_ing: ResolverIngredientes) -> None:
+def _importar_compra(cliente: ClienteInterno, informe: Informe, datos: dict, resolver_ing: ResolverIngredientes) -> None:
     compra = datos.get('compra')
     if not compra:
         return
