@@ -14,6 +14,7 @@ import {
 import { SESSION_EXPIRED } from './lib/api'
 import { useAuth } from './lib/auth'
 import { Button, Field, SkeletonList } from './components/ui'
+import { Footer } from './components/Footer'
 
 const Hoy = lazy(() => import('./features/hoy/HoyPage'))
 const Entreno = lazy(() => import('./features/entreno/EntrenoPage'))
@@ -89,6 +90,8 @@ function LoginPage() {
         </p>
 
         <p className="mt-4 text-center text-xs text-fg-subtle">{t('login.privacidad')}</p>
+
+        <Footer />
       </div>
     </main>
   )
@@ -123,33 +126,6 @@ function NavItem({ dest, vertical }: { dest: Destino; vertical: boolean }) {
   )
 }
 
-// Pie de pagina de toda la app. La atribucion a wger es obligatoria por la
-// AGPL-3.0 (el proyecto deriva de wger, ver NOTICE) y no se puede quitar.
-function Footer() {
-  return (
-    <footer className="mt-10 space-y-1 border-t border-border pt-4 text-xs text-fg-subtle">
-      <p>
-        © 2026 Szabi Szalasi ·{' '}
-        <Link to="/legal" className="hover:text-fg-muted hover:underline">
-          Condiciones de uso
-        </Link>
-      </p>
-      <p>
-        Basado en{' '}
-        <a
-          href="https://github.com/wger-project/wger"
-          target="_blank"
-          rel="noreferrer"
-          className="hover:text-fg-muted hover:underline"
-        >
-          wger
-        </a>{' '}
-        (AGPL-3.0)
-      </p>
-    </footer>
-  )
-}
-
 function AppShell({ children }: { children: React.ReactNode }) {
   const { username, signOut } = useAuth()
   const { pathname } = useLocation()
@@ -162,8 +138,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-dvh lg:flex">
-      {/* Barra lateral, solo en escritorio */}
-      <aside className="hidden w-60 shrink-0 border-r border-border bg-surface/40 p-4 lg:flex lg:flex-col">
+      {/* Barra lateral, solo en escritorio. Fija con sticky: al deslizar el
+          contenido central, la barra se queda quieta en su sitio en vez de
+          desplazarse con el resto de la pagina (en movil no aplica, ver la
+          barra inferior mas abajo, que no se toca). */}
+      <aside className="hidden w-60 shrink-0 border-r border-border bg-surface/40 p-4 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col">
         <div className="px-2 py-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
             Salaz
@@ -190,7 +169,6 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-28 pt-6 lg:pb-10">
           <Suspense fallback={<SkeletonList rows={4} height="h-24" />}>{children}</Suspense>
-          <Footer />
         </main>
       </div>
 

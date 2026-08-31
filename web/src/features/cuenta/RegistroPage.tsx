@@ -12,6 +12,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { MailCheck } from 'lucide-react'
 
 import { Button, Field } from '../../components/ui'
+import { Footer } from '../../components/Footer'
 import { mensajeDeError, useRegistro } from './api'
 
 export default function RegistroPage() {
@@ -87,8 +88,7 @@ export default function RegistroPage() {
           </Link>
         </p>
 
-        {/* Quien crea una cuenta tiene que poder leer las condiciones antes,
-            y el pie de pagina solo existe dentro de la app con sesion. */}
+        {/* Quien crea una cuenta tiene que poder leer las condiciones antes. */}
         <p className="mt-4 text-center text-xs text-fg-subtle">
           Al crear la cuenta aceptas las{' '}
           <Link to="/legal" className="underline hover:text-fg-muted">
@@ -96,6 +96,8 @@ export default function RegistroPage() {
           </Link>
           .
         </p>
+
+        <Footer />
       </div>
     </main>
   )

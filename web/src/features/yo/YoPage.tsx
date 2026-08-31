@@ -28,6 +28,7 @@ import {
   StatCard,
   Thumbnail,
 } from '../../components/ui'
+import { Footer } from '../../components/Footer'
 import { int, kg, num, shortDate, today } from '../../lib/format'
 import { useAuth } from '../../lib/auth'
 import { useAjustes } from '../../lib/settings'
@@ -1214,6 +1215,10 @@ function AjustesTab() {
           {t('ajustes.datos.exportar')}
         </Button>
       </Card>
+
+      {/* La atribucion a wger solo se enseña aqui dentro de la app (y en
+          login/registro, ver components/Footer.tsx) -- no en cada pantalla. */}
+      <Footer />
     </div>
   )
 }
