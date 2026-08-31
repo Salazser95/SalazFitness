@@ -26,6 +26,14 @@ WORKDIR /srv
 
 RUN git clone --depth 1 --branch "${WGER_REF}" https://github.com/wger-project/wger.git /srv/wger
 
+# Un unico parche puntual sobre wger, aplicado aqui (nunca sobre el checkout
+# del desarrollador, ver la nota de mas arriba): la migracion
+# manager.0025_change_pk_to_uuid falla siempre contra MySQL con el error 1093
+# (autorreferencia una tabla dentro de su propio UPDATE, algo que MySQL
+# prohibe y PostgreSQL/SQLite no). Detalle completo en el propio script.
+COPY deploy/parches/wger_mysql_workoutlog_next_log.py /tmp/parche.py
+RUN python3 /tmp/parche.py && rm /tmp/parche.py
+
 WORKDIR /srv/wger
 RUN pip install --no-cache-dir . \
     && pip install --no-cache-dir gunicorn mysqlclient
