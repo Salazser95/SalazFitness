@@ -20,11 +20,12 @@ import datetime
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from salaz.exportacion import exportar_datos_usuario, importar_datos_usuario
 from salaz.models import Household, PantryItem, Purchase, PurchaseItem
 from salaz.tests.test_api import SalazApiTestCase, make_ingredient
-from wger.nutrition.models import Meal, MealItem, NutritionPlan
+from wger.nutrition.models import LogItem, Meal, MealItem, NutritionPlan
 from wger.weight.models import WeightEntry
 
 
@@ -43,6 +44,10 @@ class ExportarImportarTests(SalazApiTestCase):
         self.comida = Meal.objects.create(plan=self.plan, order=1, name='Comida')
         MealItem.objects.create(meal=self.comida, ingredient=self.pollo, amount=Decimal('200'))
         MealItem.objects.create(meal=self.comida, ingredient=self.arroz, amount=Decimal('100'))
+        LogItem.objects.create(
+            plan=self.plan, meal=self.comida, ingredient=self.pollo,
+            datetime=timezone.now(), amount=Decimal('200'),
+        )
 
         WeightEntry.objects.create(user=self.origen, date='2026-08-01', weight=Decimal('78.4'))
         WeightEntry.objects.create(user=self.origen, date='2026-08-15', weight=Decimal('77.9'))
@@ -66,6 +71,9 @@ class ExportarImportarTests(SalazApiTestCase):
         [comida] = planes[0]['comidas']
         nombres = {item['ingrediente']['name'] for item in comida['meal_items']}
         self.assertEqual(nombres, {'Pechuga de pollo', 'Arroz blanco'})
+
+        [entrada_diario] = datos['nutricion']['diario']
+        self.assertEqual(entrada_diario['ingrediente']['name'], 'Pechuga de pollo')
 
         self.assertEqual(datos['compra']['hogar_nombre'], 'Casa de prueba')
         self.assertEqual(len(datos['compra']['despensa']), 1)
@@ -93,6 +101,11 @@ class ExportarImportarTests(SalazApiTestCase):
         # resolvieron contra el catalogo propio del destino.
         self.assertNotEqual({i.ingredient_id for i in items}, {self.pollo.id, self.arroz.id})
 
+        comida_destino = Meal.objects.get(plan=plan_destino, name='Comida')
+        [entrada_diario] = LogItem.objects.filter(plan=plan_destino)
+        self.assertEqual(entrada_diario.ingredient.name, 'Pechuga de pollo')
+        self.assertEqual(entrada_diario.meal_id, comida_destino.id)
+
         self.assertEqual(
             set(WeightEntry.objects.filter(user=self.destino).values_list('date', flat=True)),
             {datetime.date(2026, 8, 1), datetime.date(2026, 8, 15)},
@@ -101,6 +114,24 @@ class ExportarImportarTests(SalazApiTestCase):
         hogar_destino = Household.objects.get(owner=self.destino, name='Casa de prueba')
         self.assertEqual(PantryItem.objects.filter(household=hogar_destino).count(), 1)
         self.assertEqual(Purchase.objects.filter(household=hogar_destino).count(), 1)
+
+    def test_diario_se_enlaza_al_plan_existente_aunque_el_plan_no_se_recree(self):
+        # Regresion: si el destino YA tiene un plan con esa descripcion, no
+        # se recrea (para no duplicarlo) -- pero sus entradas del diario
+        # tienen que enlazarse al plan que ya existe, no perderse solo
+        # porque el plan en si se omitio.
+        plan_destino = NutritionPlan.objects.create(user=self.destino, description='Volumen', only_logging=True)
+        make_ingredient(name='Pechuga de pollo')
+        make_ingredient(name='Arroz blanco')
+
+        datos = exportar_datos_usuario(self.origen)
+        informe = importar_datos_usuario(self.destino, datos)
+
+        self.assertEqual(informe['omitidos'].get('planes de nutricion (ya existian)'), 1)
+        self.assertNotIn('entradas del diario (su plan no se importo)', informe['omitidos'])
+
+        [entrada_diario] = LogItem.objects.filter(plan=plan_destino)
+        self.assertEqual(entrada_diario.ingredient.name, 'Pechuga de pollo')
 
     def test_importar_es_re_ejecutable_sin_duplicar_lo_grueso(self):
         datos = exportar_datos_usuario(self.origen)

@@ -531,12 +531,19 @@ def _importar_entreno(cliente: APIClient, informe: Informe, datos: dict, resolve
 
 def _importar_nutricion(cliente: APIClient, informe: Informe, datos: dict, resolver_ing: ResolverIngredientes) -> None:
     nutricion = datos.get('nutricion') or {}
-    descripciones_existentes = {p['description'] for p in _get_todo(cliente, '/api/v2/nutritionplan/')}
+    # Por descripcion, no por id: el id de un plan ya existente en este
+    # servidor no tiene por que coincidir con el del export.
+    planes_existentes = {p['description']: p['id'] for p in _get_todo(cliente, '/api/v2/nutritionplan/')}
 
     mapa_comidas: dict[str, str] = {}
     mapa_planes: dict[str, str] = {}
     for plan in nutricion.get('planes', []):
-        if plan['description'] in descripciones_existentes:
+        if plan['description'] in planes_existentes:
+            # No se recrean sus comidas (podria duplicarlas si ya las
+            # tiene), pero SI se registra su id: si no, las entradas del
+            # diario de ESTE plan se perderian por completo solo porque el
+            # plan en si ya existia, que es peor que omitir el plan.
+            mapa_planes[plan['id']] = planes_existentes[plan['description']]
             informe.omitido('planes de nutricion (ya existian)')
             continue
 

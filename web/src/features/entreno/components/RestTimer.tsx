@@ -44,7 +44,14 @@ export function RestTimer({ segundosIniciales, onTerminar }: RestTimerProps) {
 
   return (
     <div
-      className="glass fixed inset-x-0 bottom-16 z-40 border-t border-border px-4 py-3 lg:bottom-0"
+      // bottom-16 (4rem) es la altura de la barra inferior de movil SIN
+      // contar el area segura del iPhone (el hueco del indicador de
+      // inicio, ver pb-safe en styles/theme.css): en un iPhone con ese
+      // indicador la barra real es mas alta que 4rem, y con un valor fijo
+      // el temporizador quedaba tapado por detras. z-50 (antes z-40, por
+      // debajo de la barra) para que nunca quede detras aunque el calculo
+      // no cuadre al pixel.
+      className="glass fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 border-t border-border px-4 py-3 lg:bottom-0"
       role="timer"
       aria-live="polite"
       aria-label={`Descanso, quedan ${mm} minutos ${ss} segundos`}
