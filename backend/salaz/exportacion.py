@@ -34,8 +34,16 @@ from rest_framework.test import APIClient
 VERSION_EXPORTACION = 1
 
 
-def _cliente_para(user) -> APIClient:
-    cliente = APIClient()
+def _cliente_para(user, host: str) -> APIClient:
+    # SERVER_NAME (no HTTP_HOST) porque asi lo hereda cada peticion que haga
+    # este cliente sin tener que repetirlo en cada .get()/.post(): APIClient
+    # rellena el Host de sus peticiones internas con "testserver" si no se
+    # le dice otra cosa, y ALLOWED_HOSTS en un servidor de verdad (por
+    # ejemplo, solo ".trycloudflare.com") rechaza eso con un 400 en texto
+    # plano -- que ni siquiera es un Response de DRF, asi que revienta con
+    # AttributeError en cuanto se lee `.data` (confirmado con el traceback
+    # real). En local no se nota porque ALLOWED_HOSTS esta en '*'.
+    cliente = APIClient(SERVER_NAME=host)
     cliente.force_authenticate(user=user)
     return cliente
 
@@ -209,9 +217,13 @@ def _exportar_compra(cliente: APIClient, user) -> dict | None:
     }
 
 
-def exportar_datos_usuario(user) -> dict:
-    """Vuelca todo el contenido de `user`: entreno, nutricion, compra, peso y perfil."""
-    cliente = _cliente_para(user)
+def exportar_datos_usuario(user, host: str) -> dict:
+    """
+    Vuelca todo el contenido de `user`: entreno, nutricion, compra, peso y
+    perfil. `host` es el de la peticion original (request.get_host() en la
+    vista que llama) -- lo necesita el cliente interno, ver _cliente_para.
+    """
+    cliente = _cliente_para(user, host)
 
     peso_entradas = _get_todo(cliente, '/api/v2/weightentry/')
     objetivos_peso = _get_todo(cliente, '/api/v2/salaz/weight-goal/')
@@ -685,9 +697,13 @@ def _importar_compra(cliente: APIClient, informe: Informe, datos: dict, resolver
         informe.creado('tickets')
 
 
-def importar_datos_usuario(user, datos: dict) -> dict:
-    """Recrea para `user` todo el contenido de un JSON generado por exportar_datos_usuario."""
-    cliente = _cliente_para(user)
+def importar_datos_usuario(user, datos: dict, host: str) -> dict:
+    """
+    Recrea para `user` todo el contenido de un JSON generado por
+    exportar_datos_usuario. `host` es el de la peticion original
+    (request.get_host() en la vista que llama), ver _cliente_para.
+    """
+    cliente = _cliente_para(user, host)
     informe = Informe()
 
     if datos.get('version') != VERSION_EXPORTACION:

@@ -291,7 +291,7 @@ class AccountViewSet(ViewSet):
         que consume exactamente este formato (ver salaz/exportacion.py).
         """
         return Response(
-            exportar_datos_usuario(request.user),
+            exportar_datos_usuario(request.user, request.get_host()),
             headers={
                 'Content-Disposition': 'attachment; filename="salazfitness-exportacion.json"',
             },
@@ -316,5 +316,5 @@ class AccountViewSet(ViewSet):
                 {'detail': 'El cuerpo tiene que ser el JSON de una exportacion.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        informe = importar_datos_usuario(request.user, datos)
+        informe = importar_datos_usuario(request.user, datos, request.get_host())
         return Response(informe)

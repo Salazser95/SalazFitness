@@ -61,7 +61,7 @@ class ExportarImportarTests(SalazApiTestCase):
         )
 
     def test_exportar_incluye_lo_creado_en_setup(self):
-        datos = exportar_datos_usuario(self.origen)
+        datos = exportar_datos_usuario(self.origen, 'testserver')
 
         self.assertEqual(datos['version'], 1)
         self.assertEqual({e['date'] for e in datos['peso']['entradas']}, {'2026-08-01', '2026-08-15'})
@@ -80,14 +80,14 @@ class ExportarImportarTests(SalazApiTestCase):
         self.assertEqual(len(datos['compra']['compras']), 1)
 
     def test_importar_reproduce_el_contenido_para_otro_usuario(self):
-        datos = exportar_datos_usuario(self.origen)
+        datos = exportar_datos_usuario(self.origen, 'testserver')
 
         # La cuenta destino ya tiene SUS PROPIOS alimentos con otros ids:
         # importar_datos_usuario tiene que casarlos por nombre, no por id.
         make_ingredient(name='Pechuga de pollo')
         make_ingredient(name='Arroz blanco')
 
-        informe = importar_datos_usuario(self.destino, datos)
+        informe = importar_datos_usuario(self.destino, datos, 'testserver')
 
         self.assertEqual(informe['fallos'], [])
 
@@ -124,8 +124,8 @@ class ExportarImportarTests(SalazApiTestCase):
         make_ingredient(name='Pechuga de pollo')
         make_ingredient(name='Arroz blanco')
 
-        datos = exportar_datos_usuario(self.origen)
-        informe = importar_datos_usuario(self.destino, datos)
+        datos = exportar_datos_usuario(self.origen, 'testserver')
+        informe = importar_datos_usuario(self.destino, datos, 'testserver')
 
         self.assertEqual(informe['omitidos'].get('planes de nutricion (ya existian)'), 1)
         self.assertNotIn('entradas del diario (su plan no se importo)', informe['omitidos'])
@@ -134,9 +134,9 @@ class ExportarImportarTests(SalazApiTestCase):
         self.assertEqual(entrada_diario.ingredient.name, 'Pechuga de pollo')
 
     def test_importar_es_re_ejecutable_sin_duplicar_lo_grueso(self):
-        datos = exportar_datos_usuario(self.origen)
-        importar_datos_usuario(self.destino, datos)
-        importar_datos_usuario(self.destino, datos)
+        datos = exportar_datos_usuario(self.origen, 'testserver')
+        importar_datos_usuario(self.destino, datos, 'testserver')
+        importar_datos_usuario(self.destino, datos, 'testserver')
 
         self.assertEqual(NutritionPlan.objects.filter(user=self.destino, description='Volumen').count(), 1)
         self.assertEqual(WeightEntry.objects.filter(user=self.destino).count(), 2)
