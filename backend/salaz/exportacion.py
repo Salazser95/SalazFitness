@@ -42,9 +42,11 @@ proyecto (ver salaz/tests/test_api.py).
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.urls import Resolver404, resolve
 from rest_framework.test import APIRequestFactory, force_authenticate
 
@@ -57,11 +59,28 @@ class ClienteInterno:
     manejador WSGI ni por ningun middleware (ver el docstring del modulo
     para el porque). Expone solo get/post/patch: lo unico que usa este
     fichero de un APIClient normal.
+
+    Saltarse el middleware tiene un precio: lo que el middleware pondria en
+    la peticion (sesion, idioma activo...) no esta a menos que se ponga a
+    mano. request.session ya se rellena aqui (ver __init__/_llamar) porque
+    codigo de wger lo usa de verdad (RoutineViewSet, por la funcion de
+    entrenador personal). Si aparece otro AttributeError de un atributo que
+    normalmente pone el middleware, el arreglo es el mismo patron: ponerlo a
+    mano aqui, no volver a APIClient.
     """
 
     def __init__(self, user, host: str):
         self.user = user
         self.factory = APIRequestFactory()
+        # SessionMiddleware es quien normalmente pone request.session; al no
+        # ejecutar middleware, sin esto ni siquiera existe el atributo.
+        # request_user_or_trainer_q() de wger (usada por RoutineViewSet,
+        # entre otras) lo lee (request.session.get('trainer.identity')) --
+        # confirmado con un traceback real: 'Request' object has no
+        # attribute 'session'. Una SessionStore vacia sin guardar es
+        # exactamente lo que tendria un visitante anonimo sin cookie de
+        # sesion, que es lo que es este cliente.
+        self._motor_sesion = import_module(settings.SESSION_ENGINE).SessionStore
         self.cabeceras = {
             # HTTP_HOST, no SERVER_NAME: SERVER_NAME hace que Django
             # reconstruya el Host pegandole el puerto (get_host(), en
@@ -99,6 +118,8 @@ class ClienteInterno:
         # de llamar a la vista; sin el, algunos metodos de ViewSetMixin
         # (get_extra_action_url_map) revientan con AttributeError.
         peticion.resolver_match = match
+        # Ver el comentario de _motor_sesion en __init__.
+        peticion.session = self._motor_sesion()
         force_authenticate(peticion, user=self.user)
 
         respuesta = match.func(peticion, *match.args, **match.kwargs)

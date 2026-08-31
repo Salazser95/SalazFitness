@@ -157,6 +157,17 @@ class ExportarImportarTests(SalazApiTestCase):
         cliente = _cliente_para(self.origen, 'ejemplo.trycloudflare.com')
         self.assertEqual(cliente.get('/api/v2/weightentry/').status_code, 200)
 
+    def test_cliente_interno_da_acceso_a_rutas_de_wger_que_leen_la_sesion(self):
+        # Regresion: ClienteInterno se salta el middleware a proposito (ver
+        # su docstring), y eso incluye SessionMiddleware -- sin ponerlo a
+        # mano, request.session ni existe. RoutineViewSet.get_queryset() de
+        # wger lo lee de verdad (la funcion de entrenador personal), asi que
+        # cualquier importacion que toque rutinas pasaba por aqui SIEMPRE
+        # (_importar_entreno consulta /api/v2/routine/ aunque no haya
+        # ninguna rutina que importar) y reventaba con AttributeError.
+        cliente = _cliente_para(self.origen, 'ejemplo.trycloudflare.com')
+        self.assertEqual(cliente.get('/api/v2/routine/').status_code, 200)
+
     def test_cliente_interno_admite_un_host_con_puerto(self):
         # Regresion: con SERVER_NAME (usado antes), Django reconstruye el
         # Host pegandole el puerto -- si `host` ya trae uno (como
