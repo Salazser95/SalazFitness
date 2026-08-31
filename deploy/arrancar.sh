@@ -57,6 +57,27 @@ if [ -n "${SALAZ_CREAR_USUARIO_PRUEBA}" ]; then
     python manage.py crear_usuario salaz1 --password "${SALAZ_CREAR_USUARIO_PRUEBA}"
 fi
 
+# Clave RSA del login de la app (ver el comentario de JWT en
+# salaz_settings_prod.py). Si el .env no trae JWT_PRIVATE_KEY/JWT_PUBLIC_KEY,
+# se genera aqui UNA vez, antes de arrancar gunicorn, y se exporta como
+# variable de entorno real: asi la heredan por igual los tres workers de
+# gunicorn. Generarla dentro de settings.py sin este paso daba una clave
+# DISTINTA por worker (cada uno importa el modulo de ajustes por su cuenta, no
+# hay --preload): el login parecia funcionar un instante y fallaba en cuanto
+# la siguiente peticion caia en otro worker, con la sesion firmada por una
+# clave que ese worker no reconocia -- "la sesion ha caducado" a los pocos
+# segundos, sin haber caducado nada de verdad.
+if [ -z "${JWT_PRIVATE_KEY}" ] || [ -z "${JWT_PUBLIC_KEY}" ]; then
+    echo "Generando clave JWT para esta ejecucion (no hay JWT_PRIVATE_KEY/JWT_PUBLIC_KEY en el .env)..."
+    claves="$(python manage.py generate-jwt-keys)"
+    export JWT_PRIVATE_KEY="$(printf '%s\n' "$claves" | grep '^JWT_PRIVATE_KEY=' | cut -d= -f2-)"
+    export JWT_PUBLIC_KEY="$(printf '%s\n' "$claves" | grep '^JWT_PUBLIC_KEY=' | cut -d= -f2-)"
+    if [ -z "${JWT_PRIVATE_KEY}" ] || [ -z "${JWT_PUBLIC_KEY}" ]; then
+        echo "No se ha podido generar la clave JWT (salida inesperada de generate-jwt-keys)." >&2
+        exit 1
+    fi
+fi
+
 echo "Arrancando gunicorn..."
 exec gunicorn wger.wsgi:application \
     --bind 0.0.0.0:8000 \

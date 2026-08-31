@@ -146,15 +146,22 @@ WGER_SETTINGS['EMAIL_FROM'] = DEFAULT_FROM_EMAIL
 # ensenaba "usuario o contrasena incorrectos" porque el frontend usa ese texto
 # de repuesto para cualquier fallo, cuando el fallo real era este.
 #
-# Con JWT_PRIVATE_KEY/JWT_PUBLIC_KEY sin poner (caso normal mientras se
-# prueba) se genera aqui una pareja RSA nueva cada vez que arranca el
-# contenedor: la app funciona sin pasos previos, a cambio de que un reinicio
-# del contenedor invalida las sesiones abiertas (hay que volver a entrar, no
-# pasa nada peor). Para que las sesiones sobrevivan a un reinicio -- de cara a
-# tenerlo funcionando de forma mas estable -- genera una pareja fija una vez
-# con:
+# Con JWT_PRIVATE_KEY/JWT_PUBLIC_KEY sin poner, se genera aqui una pareja RSA
+# nueva. Esto es solo un ultimo recurso para cuando algo importa este modulo
+# de ajustes sin pasar por deploy/arrancar.sh (por ejemplo, un `manage.py`
+# suelto): en el arranque normal del contenedor, arrancar.sh YA genera y
+# exporta estas dos variables antes de lanzar gunicorn, precisamente para que
+# los tres workers compartan la MISMA clave -- si cada worker generase la
+# suya (como pasaba antes de ese paso en arrancar.sh, porque cada uno importa
+# este fichero por su cuenta, sin --preload), el login parecia funcionar un
+# instante y fallaba en la siguiente peticion si caia en otro worker, con la
+# sesion firmada por una clave que ese worker no reconocia.
+#
+# Para que las sesiones sobrevivan tambien a un reinicio del CONTENEDOR (y no
+# solo entre sus workers) hace falta una pareja fija de verdad, puesta en
+# deploy/.env. Se genera una vez con:
 #     docker compose exec api python manage.py generate-jwt-keys
-# y copia las dos lineas que imprime (JWT_PRIVATE_KEY=... y
+# y se copian las dos lineas que imprime (JWT_PRIVATE_KEY=... y
 # JWT_PUBLIC_KEY=...) tal cual a deploy/.env.
 _jwt_privada_b64 = _env('JWT_PRIVATE_KEY')
 _jwt_publica_b64 = _env('JWT_PUBLIC_KEY')
