@@ -132,6 +132,60 @@ WGER_SETTINGS['ALLOW_UPLOAD_VIDEOS'] = True
 WGER_SETTINGS['USE_CELERY'] = False
 WGER_SETTINGS['EMAIL_FROM'] = DEFAULT_FROM_EMAIL
 
+# --------------------------------------------------------------------- JWT
+#
+# La app (web/src/lib/api.ts) entra por la API "headless" de allauth, que
+# firma sus tokens en RS256 con una clave RSA propia -- no con SALAZ_SECRET_KEY.
+# wger trae el mecanismo (settings_global.jwk_b64_to_pem, mas el comando
+# `manage.py generate-jwt-keys`) pero solo lo conecta en settings/main.py, que
+# aqui no se usa (se parte de settings_global directamente, ver cabecera del
+# fichero). Sin esto conectado, SIMPLE_JWT['SIGNING_KEY'] y
+# HEADLESS_JWT_PRIVATE_KEY quedan sin valor y el login de la app falla siempre
+# con un 500 al intentar firmar el token -- con el usuario y la contrasena
+# perfectamente correctos. Es justo lo que paso la primera vez: la app
+# ensenaba "usuario o contrasena incorrectos" porque el frontend usa ese texto
+# de repuesto para cualquier fallo, cuando el fallo real era este.
+#
+# Con JWT_PRIVATE_KEY/JWT_PUBLIC_KEY sin poner (caso normal mientras se
+# prueba) se genera aqui una pareja RSA nueva cada vez que arranca el
+# contenedor: la app funciona sin pasos previos, a cambio de que un reinicio
+# del contenedor invalida las sesiones abiertas (hay que volver a entrar, no
+# pasa nada peor). Para que las sesiones sobrevivan a un reinicio -- de cara a
+# tenerlo funcionando de forma mas estable -- genera una pareja fija una vez
+# con:
+#     docker compose exec api python manage.py generate-jwt-keys
+# y copia las dos lineas que imprime (JWT_PRIVATE_KEY=... y
+# JWT_PUBLIC_KEY=...) tal cual a deploy/.env.
+_jwt_privada_b64 = _env('JWT_PRIVATE_KEY')
+_jwt_publica_b64 = _env('JWT_PUBLIC_KEY')
+
+if _jwt_privada_b64 and _jwt_publica_b64:
+    JWT_PRIVATE_KEY = jwk_b64_to_pem(_jwt_privada_b64)
+    JWT_PUBLIC_KEY = jwk_b64_to_pem(_jwt_publica_b64)
+else:
+    print(
+        'AVISO: JWT_PRIVATE_KEY/JWT_PUBLIC_KEY no estan puestas. Se genera una '
+        'clave RSA nueva para esta ejecucion: las sesiones no sobreviven a un '
+        'reinicio del contenedor. Ver el comentario de JWT en salaz_settings_prod.py.'
+    )
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+    _clave_efimera = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    JWT_PRIVATE_KEY = _clave_efimera.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    JWT_PUBLIC_KEY = _clave_efimera.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+
+SIMPLE_JWT['SIGNING_KEY'] = JWT_PRIVATE_KEY
+SIMPLE_JWT['VERIFYING_KEY'] = JWT_PUBLIC_KEY
+HEADLESS_JWT_PRIVATE_KEY = JWT_PRIVATE_KEY
+
 # --------------------------------------------------------------- seguridad
 
 CSRF_TRUSTED_ORIGINS = _lista('SALAZ_CSRF_ORIGINS') or [f'https://{h}' for h in ALLOWED_HOSTS]

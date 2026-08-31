@@ -68,6 +68,10 @@ services:
       SALAZ_EMAIL_FROM: ${SALAZ_EMAIL_FROM}
       SALAZ_CORS_ORIGINS: ${SALAZ_CORS_ORIGINS:-}
       SALAZ_CREAR_USUARIO_PRUEBA: ${SALAZ_CREAR_USUARIO_PRUEBA:-}
+      # Clave RSA del login de la app (ver deploy/.env.example). Vacio es
+      # valido: se genera una nueva en cada arranque si no se pone.
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
     volumes:
       - estaticos:/srv/salaz/static
       - subidas:/srv/salaz/media
