@@ -20,9 +20,10 @@ import datetime
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.test import override_settings
 from django.utils import timezone
 
-from salaz.exportacion import exportar_datos_usuario, importar_datos_usuario
+from salaz.exportacion import _cliente_para, exportar_datos_usuario, importar_datos_usuario
 from salaz.models import Household, PantryItem, Purchase, PurchaseItem
 from salaz.tests.test_api import SalazApiTestCase, make_ingredient
 from wger.nutrition.models import LogItem, Meal, MealItem, NutritionPlan
@@ -140,3 +141,33 @@ class ExportarImportarTests(SalazApiTestCase):
 
         self.assertEqual(NutritionPlan.objects.filter(user=self.destino, description='Volumen').count(), 1)
         self.assertEqual(WeightEntry.objects.filter(user=self.destino).count(), 2)
+
+    @override_settings(
+        SECURE_SSL_REDIRECT=True,
+        SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https'),
+    )
+    def test_cliente_interno_no_lo_tumba_la_redireccion_a_https(self):
+        # Regresion: en produccion SALAZ_FORCE_HTTPS=1 activa
+        # SECURE_SSL_REDIRECT, y SecurityMiddleware contesta 301 a toda
+        # peticion que no diga "https" -- el cliente interno no pasa por
+        # nginx, asi que tiene que decir el mismo "https" que diria nginx.
+        cliente = _cliente_para(self.origen, 'ejemplo.trycloudflare.com')
+        self.assertEqual(cliente.get('/api/v2/weightentry/').status_code, 200)
+
+    @override_settings(
+        SECURE_SSL_REDIRECT=True,
+        SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https'),
+        ALLOWED_HOSTS=['.trycloudflare.com'],
+    )
+    def test_exportar_e_importar_con_los_ajustes_del_tunel(self):
+        # Mismo caso que el anterior pero con los DOS ajustes de produccion a
+        # la vez (ALLOWED_HOSTS restringido + SECURE_SSL_REDIRECT), que es lo
+        # que de verdad hay en el tunel -- cubre tambien el fix del Host, que
+        # hasta ahora no tenia ninguna prueba propia.
+        datos = exportar_datos_usuario(self.origen, 'ejemplo.trycloudflare.com')
+        self.assertEqual(datos['version'], 1)
+
+        make_ingredient(name='Pechuga de pollo')
+        make_ingredient(name='Arroz blanco')
+        informe = importar_datos_usuario(self.destino, datos, 'ejemplo.trycloudflare.com')
+        self.assertEqual(informe['fallos'], [])

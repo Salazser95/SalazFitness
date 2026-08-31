@@ -17,6 +17,7 @@ La cuenta se crea con `is_active=False`. wger ya rechaza el login de un usuario
 inactivo, asi que la verificacion queda impuesta sin modificar nada de wger.
 """
 
+import logging
 from datetime import timedelta
 
 from django.conf import settings
@@ -36,6 +37,8 @@ from rest_framework.viewsets import ViewSet
 from salaz.exportacion import exportar_datos_usuario, importar_datos_usuario
 from salaz.models import AccountVerification
 
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -290,8 +293,19 @@ class AccountViewSet(ViewSet):
         Pensado para llevarlo de una instalacion a otra: ver importar_todo,
         que consume exactamente este formato (ver salaz/exportacion.py).
         """
+        try:
+            datos = exportar_datos_usuario(request.user, request.get_host())
+        except Exception:
+            # Sin esto, un fallo aqui (por ejemplo de configuracion, no del
+            # dato en si) se traga el traceback: DEBUG=False no lo imprime a
+            # consola y no hay ADMINS configurados para el correo de error.
+            logger.exception('exportar_todo ha fallado para %s', request.user.username)
+            return Response(
+                {'detail': 'No se ha podido generar la exportacion. Revisa los logs del servidor.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         return Response(
-            exportar_datos_usuario(request.user, request.get_host()),
+            datos,
             headers={
                 'Content-Disposition': 'attachment; filename="salazfitness-exportacion.json"',
             },
@@ -316,5 +330,12 @@ class AccountViewSet(ViewSet):
                 {'detail': 'El cuerpo tiene que ser el JSON de una exportacion.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        informe = importar_datos_usuario(request.user, datos, request.get_host())
+        try:
+            informe = importar_datos_usuario(request.user, datos, request.get_host())
+        except Exception:
+            logger.exception('importar_todo ha fallado para %s', request.user.username)
+            return Response(
+                {'detail': 'No se ha podido importar el fichero. Revisa los logs del servidor.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         return Response(informe)

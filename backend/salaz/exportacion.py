@@ -35,6 +35,10 @@ VERSION_EXPORTACION = 1
 
 
 def _cliente_para(user, host: str) -> APIClient:
+    # Dos ajustes por el mismo motivo: este cliente hace peticiones DENTRO del
+    # proceso de Django, sin pasar por nginx ni por el tunel, asi que nada de
+    # lo que ponen esos dos de verdad (Host, X-Forwarded-Proto) llega solo.
+    #
     # SERVER_NAME (no HTTP_HOST) porque asi lo hereda cada peticion que haga
     # este cliente sin tener que repetirlo en cada .get()/.post(): APIClient
     # rellena el Host de sus peticiones internas con "testserver" si no se
@@ -43,15 +47,33 @@ def _cliente_para(user, host: str) -> APIClient:
     # plano -- que ni siquiera es un Response de DRF, asi que revienta con
     # AttributeError en cuanto se lee `.data` (confirmado con el traceback
     # real). En local no se nota porque ALLOWED_HOSTS esta en '*'.
-    cliente = APIClient(SERVER_NAME=host)
+    #
+    # HTTP_X_FORWARDED_PROTO='https' porque en produccion SALAZ_FORCE_HTTPS=1
+    # activa SECURE_SSL_REDIRECT, y SecurityMiddleware mira esa cabecera (ver
+    # SECURE_PROXY_SSL_HEADER en salaz_settings_prod.py) para saber si la
+    # peticion ya iba por https. nginx se la pone a las peticiones reales; una
+    # peticion de este cliente sin ella parece "http" y SecurityMiddleware
+    # responde una redireccion 301 en vez de ejecutar la vista -- que vuelve a
+    # reventar igual que el caso de arriba, porque un 301 tampoco tiene
+    # `.data`. En local no se nota porque SECURE_SSL_REDIRECT esta a False.
+    cliente = APIClient(SERVER_NAME=host, HTTP_X_FORWARDED_PROTO='https')
     cliente.force_authenticate(user=user)
     return cliente
+
+
+def _detalle(res) -> str:
+    # res.data solo existe en un Response de DRF. Una redireccion de
+    # SecurityMiddleware o un 400 de ALLOWED_HOSTS son HttpResponse a secas
+    # -- sin esto, un fallo de configuracion (no del dato en si) revienta con
+    # un AttributeError que tapa la causa real (ya nos paso dos veces).
+    datos = getattr(res, 'data', None)
+    return str(datos) if datos is not None else res.content[:300].decode('utf-8', 'replace')
 
 
 def _get(cliente: APIClient, ruta: str) -> Any:
     res = cliente.get(ruta)
     if res.status_code != 200:
-        raise ValueError(f'GET {ruta} -> {res.status_code}: {res.data}')
+        raise ValueError(f'GET {ruta} -> {res.status_code}: {_detalle(res)}')
     return res.data
 
 
@@ -276,7 +298,7 @@ def _post(cliente: APIClient, informe: Informe, contexto: str, ruta: str, cuerpo
     def hacer():
         res = cliente.post(ruta, cuerpo, format='json')
         if res.status_code not in (200, 201):
-            raise ValueError(f'POST {ruta} -> {res.status_code}: {res.data}')
+            raise ValueError(f'POST {ruta} -> {res.status_code}: {_detalle(res)}')
         return res.data
 
     return _intentar(informe, contexto, hacer)
@@ -384,7 +406,7 @@ def _importar_perfil(cliente: APIClient, informe: Informe, datos: dict) -> None:
     def hacer():
         res = cliente.patch('/api/v2/userprofile/', cuerpo, format='json')
         if res.status_code != 200:
-            raise ValueError(f'PATCH userprofile -> {res.status_code}: {res.data}')
+            raise ValueError(f'PATCH userprofile -> {res.status_code}: {_detalle(res)}')
 
     _intentar(informe, 'actualizar perfil', hacer)
     informe.creado('perfil actualizado')

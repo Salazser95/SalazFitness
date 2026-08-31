@@ -222,6 +222,25 @@ X_FRAME_OPTIONS = 'DENY'
 # Bloqueo por intentos fallidos de login. En desarrollo estorba; aqui no.
 AXES_ENABLED = True
 
+# Sin esto, un error de servidor (500) no deja rastro: el LOGGING por defecto
+# de Django solo imprime a consola con DEBUG=True, y aqui DEBUG es siempre
+# False. Sin ADMINS configurado tampoco llega por correo. Resultado: un fallo
+# real no aparece en ningun sitio ("docker compose logs api" solo enseña la
+# linea de acceso con el 500, sin el traceback) -- nos paso de verdad
+# depurando el export/import de datos. Esto manda cualquier error de una
+# vista (django.request, nivel ERROR o peor) a la consola del contenedor.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler'},
+    },
+    'loggers': {
+        'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+        'salaz': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+    },
+}
+
 # ------------------------------------------------------------- ficheros
 
 STATIC_ROOT = _env('SALAZ_STATIC_ROOT', '/srv/salaz/static')
