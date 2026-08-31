@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Camera, Check, Download, LogOut, Pencil, Plus, Ruler, Scale, Trash2, X } from 'lucide-react'
+import { Camera, Check, Download, LogOut, Pencil, Plus, Ruler, Scale, Trash2, Upload, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { CLAVE_IDIOMA, IDIOMAS_DISPONIBLES } from '../../i18n'
@@ -30,6 +30,7 @@ import {
 } from '../../components/ui'
 import { Footer } from '../../components/Footer'
 import { int, kg, num, shortDate, today } from '../../lib/format'
+import { api, ApiError } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 import { useAjustes } from '../../lib/settings'
 import {
@@ -1102,6 +1103,20 @@ function TarjetaServidor() {
   )
 }
 
+type InformeImportacion = {
+  creados: Record<string, number>
+  omitidos: Record<string, number>
+  fallos: string[]
+}
+
+function mensajeDeErrorExportacion(err: unknown): string {
+  if (err instanceof ApiError) {
+    const detalle = (err.body as { detail?: string } | null)?.detail
+    return detalle ?? err.message
+  }
+  return err instanceof Error ? err.message : 'Algo ha ido mal.'
+}
+
 function AjustesTab() {
   const { t, i18n } = useTranslation()
   const { mostrarMediaEjercicios, setMostrarMediaEjercicios, supermercadoDefecto, setSupermercadoDefecto } =
@@ -1127,6 +1142,18 @@ function AjustesTab() {
     localStorage.setItem(CLAVE_IDIOMA, codigo)
   }
 
+  function descargarJson(datos: unknown, nombre: string) {
+    const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const enlace = document.createElement('a')
+    enlace.href = url
+    enlace.download = nombre
+    document.body.appendChild(enlace)
+    enlace.click()
+    document.body.removeChild(enlace)
+    URL.revokeObjectURL(url)
+  }
+
   async function exportarDatos() {
     const datos = {
       exportadoEl: new Date().toISOString(),
@@ -1135,15 +1162,50 @@ function AjustesTab() {
       // servidor (ver useObjetivo/leerObjetivo en yo/api.ts).
       objetivo: await leerObjetivo(),
     }
-    const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const enlace = document.createElement('a')
-    enlace.href = url
-    enlace.download = `salazfitness-datos-${today()}.json`
-    document.body.appendChild(enlace)
-    enlace.click()
-    document.body.removeChild(enlace)
-    URL.revokeObjectURL(url)
+    descargarJson(datos, `salazfitness-datos-${today()}.json`)
+  }
+
+  const [exportandoTodo, setExportandoTodo] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const [informeImportacion, setInformeImportacion] = useState<InformeImportacion | null>(null)
+  const [errorImportacion, setErrorImportacion] = useState<string | null>(null)
+  const inputArchivoRef = useRef<HTMLInputElement>(null)
+
+  async function exportarTodo() {
+    setExportandoTodo(true)
+    try {
+      const datos = await api.get('/api/v2/salaz/account/exportar-todo/')
+      descargarJson(datos, `salazfitness-exportacion-${today()}.json`)
+    } catch (err) {
+      setErrorImportacion(mensajeDeErrorExportacion(err))
+    } finally {
+      setExportandoTodo(false)
+    }
+  }
+
+  async function onArchivoSeleccionado(e: ChangeEvent<HTMLInputElement>) {
+    const archivo = e.target.files?.[0]
+    e.target.value = '' // para poder volver a elegir el mismo fichero si hace falta reintentar
+    if (!archivo) return
+
+    setErrorImportacion(null)
+    setInformeImportacion(null)
+    setImportando(true)
+    try {
+      const texto = await archivo.text()
+      let datos: unknown
+      try {
+        datos = JSON.parse(texto)
+      } catch {
+        throw new Error('Ese fichero no es un JSON valido. Tiene que ser uno exportado desde aqui mismo.')
+      }
+      const informe = await api.post<InformeImportacion>('/api/v2/salaz/account/importar-todo/', datos)
+      setInformeImportacion(informe)
+    } catch (err) {
+      setErrorImportacion(mensajeDeErrorExportacion(err))
+    } finally {
+      setImportando(false)
+    }
   }
 
   return (
@@ -1214,6 +1276,76 @@ function AjustesTab() {
           <Download size={18} aria-hidden="true" />
           {t('ajustes.datos.exportar')}
         </Button>
+      </Card>
+
+      <Card>
+        <SectionLabel>Copia completa (entreno, nutrición, compra, peso y perfil)</SectionLabel>
+        <p className="text-sm text-fg-muted">
+          Descarga un único fichero con todo el contenido de esta cuenta. Sirve para llevarlo a otra
+          instalación (por ejemplo, de tu servidor local a este) sin tener que rellenarlo todo a mano: lo
+          exportas aquí, y en la otra cuenta lo importas más abajo con ese mismo fichero.
+        </p>
+        <Button type="button" variant="secondary" className="mt-4" onClick={exportarTodo} disabled={exportandoTodo}>
+          <Download size={18} aria-hidden="true" />
+          {exportandoTodo ? 'Exportando…' : 'Exportar todo'}
+        </Button>
+
+        <div className="mt-5 border-t border-border pt-4">
+          <p className="text-sm text-fg-muted">
+            Importa un fichero exportado desde aquí mismo (de esta cuenta o de otra). Cada ejercicio y cada
+            alimento se busca por nombre antes de escribirse: si alguno no se encuentra, se avisa abajo en
+            vez de dejarlo mal puesto.
+          </p>
+          <input
+            ref={inputArchivoRef}
+            type="file"
+            accept="application/json"
+            hidden
+            onChange={(e) => void onArchivoSeleccionado(e)}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-4"
+            onClick={() => inputArchivoRef.current?.click()}
+            disabled={importando}
+          >
+            <Upload size={18} aria-hidden="true" />
+            {importando ? 'Importando…' : 'Importar desde un fichero'}
+          </Button>
+
+          {errorImportacion ? <p className="mt-3 text-sm text-danger">{errorImportacion}</p> : null}
+
+          {informeImportacion ? (
+            <div className="mt-4 space-y-2 text-sm">
+              {Object.entries(informeImportacion.creados).map(([que, n]) => (
+                <p key={`creado-${que}`} className="text-success">
+                  Creado(s): {n} {que}
+                </p>
+              ))}
+              {Object.entries(informeImportacion.omitidos).map(([que, n]) => (
+                <p key={`omitido-${que}`} className="text-fg-muted">
+                  Omitido(s) (ya existían): {n} {que}
+                </p>
+              ))}
+              {informeImportacion.fallos.length > 0 ? (
+                <div className="text-danger">
+                  <p>{informeImportacion.fallos.length} fila(s) no se han podido importar:</p>
+                  <ul className="ml-4 list-disc">
+                    {informeImportacion.fallos.map((fallo, i) => (
+                      <li key={i}>{fallo}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {Object.keys(informeImportacion.creados).length === 0 &&
+              Object.keys(informeImportacion.omitidos).length === 0 &&
+              informeImportacion.fallos.length === 0 ? (
+                <p className="text-fg-muted">El fichero no tenía nada que importar.</p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </Card>
 
       {/* La atribucion a wger solo se enseña aqui dentro de la app (y en
