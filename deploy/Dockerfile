@@ -35,7 +35,14 @@ COPY backend /srv/salaz-backend
 ENV PYTHONPATH=/srv/salaz-backend:/srv/wger
 
 COPY deploy/arrancar.sh /usr/local/bin/arrancar.sh
-RUN chmod +x /usr/local/bin/arrancar.sh \
+# Quita el retorno de carro por si el fichero se clono en Windows con Git
+# en modo CRLF: con \r delante del salto de linea, la primera linea deja de
+# ser "#!/bin/sh" (pasa a "#!/bin/sh\r") y exec falla con un enganoso
+# "no such file or directory" aunque el fichero exista. sed -i 's/\r$//'
+# hace esto seguro pase lo que pase con el checkout del host, porque se
+# ejecuta aqui dentro, en Linux, sobre los bytes ya copiados.
+RUN sed -i 's/\r$//' /usr/local/bin/arrancar.sh \
+    && chmod +x /usr/local/bin/arrancar.sh \
     && mkdir -p /srv/salaz/static /srv/salaz/media
 
 EXPOSE 8000
