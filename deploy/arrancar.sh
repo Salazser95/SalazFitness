@@ -21,6 +21,27 @@ done
 echo "Aplicando migraciones..."
 python manage.py migrate --noinput
 
+# wger deja la tabla core_language (y otras tablas de referencia) vacias tras
+# migrate: normalmente las rellena "wger bootstrap", que aqui no se ejecuta
+# porque tambien crea un superusuario "admin"/"adminadmin" con contrasena
+# conocida, algo inaceptable en un servidor expuesto por el tunel. En su
+# lugar se cargan aqui solo los datos de referencia (mismos fixtures y mismo
+# orden que wger.tasks.load_fixtures), sin tocar usuarios. Sin esto, crear
+# cualquier usuario falla: UserProfile.notification_language exige que ya
+# exista Language con id=2 (ingles). loaddata es idempotente, se puede repetir
+# en cada arranque sin problema.
+echo "Cargando datos de referencia (idiomas, unidades, equipamiento, musculos, ejercicios)..."
+python manage.py loaddata languages.json
+python manage.py loaddata groups.json
+python manage.py loaddata licenses.json
+python manage.py loaddata setting_repetition_units.json
+python manage.py loaddata setting_weight_units.json
+python manage.py loaddata equipment.json
+python manage.py loaddata muscles.json
+python manage.py loaddata categories.json
+python manage.py loaddata exercise-base-data.json
+python manage.py loaddata translations.json
+
 echo "Creando la tabla de cache..."
 # Es donde DRF lleva la cuenta del limite de peticiones por IP. Idempotente:
 # si ya existe, no hace nada.
