@@ -141,6 +141,89 @@ export function StatCard({
   )
 }
 
+// ------------------------------------------------------------------- Pill
+
+type Tono = 'neutral' | 'primary' | 'accent' | 'violet' | 'success' | 'warning' | 'danger'
+
+const pillTonos: Record<Tono, string> = {
+  neutral: 'text-fg-muted',
+  primary: 'text-primary',
+  accent: 'text-accent',
+  violet: 'text-violet',
+  success: 'text-success',
+  warning: 'text-warning',
+  danger: 'text-danger',
+}
+
+/**
+ * Insignia pequeña con icono opcional, para todo lo que sea informacion
+ * secundaria junto a un numero protagonista (ver HeroStat). Antes cada
+ * pantalla reinventaba esta misma fila a mano (SesionPage, EstadoCompra,
+ * RutinasListaPage, DayNavigator...); esto es el sitio unico.
+ */
+export function Pill({
+  icon: Icon,
+  tone = 'neutral',
+  children,
+  className = '',
+}: {
+  icon?: LucideIcon
+  tone?: Tono
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <span
+      className={`inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 text-xs font-medium ${pillTonos[tone]} ${className}`}
+    >
+      {Icon ? <Icon size={13} aria-hidden="true" /> : null}
+      {children}
+    </span>
+  )
+}
+
+// --------------------------------------------------------------- HeroStat
+
+const heroAccents: Record<'primary' | 'accent' | 'violet' | 'fg', string> = {
+  primary: 'text-primary',
+  accent: 'text-accent',
+  violet: 'text-violet',
+  fg: 'text-fg',
+}
+
+/**
+ * El numero protagonista de una pantalla (duracion, peso, gasto del mes...).
+ * A proposito NO envuelve en Card: quien lo usa lo compone dentro de su
+ * propia Card junto a pills, barras o un grafico (ver RutinasListaPage,
+ * ResumenPage, YoPage, DiarioPage).
+ */
+export function HeroStat({
+  label,
+  value,
+  unit,
+  sub,
+  accent = 'primary',
+  className = '',
+}: {
+  label: string
+  value: ReactNode
+  unit?: string
+  sub?: ReactNode
+  accent?: 'primary' | 'accent' | 'violet' | 'fg'
+  className?: string
+}) {
+  return (
+    <div className={className}>
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">{label}</p>
+      <p className={`font-display text-5xl leading-none tnum lg:text-6xl ${heroAccents[accent]}`}>
+        {value}
+        {unit ? <span className="ml-1 text-2xl text-fg-muted">{unit}</span> : null}
+      </p>
+      {sub ? <div className="mt-2">{sub}</div> : null}
+    </div>
+  )
+}
+
 // ----------------------------------------------------------------- Field
 
 type FieldProps = InputHTMLAttributes<HTMLInputElement> & {

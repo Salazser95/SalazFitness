@@ -11,7 +11,22 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Camera, Check, Download, LogOut, Pencil, Plus, Ruler, Scale, Trash2, Upload, X } from 'lucide-react'
+import {
+  Camera,
+  CalendarDays,
+  Check,
+  Download,
+  LogOut,
+  Pencil,
+  Plus,
+  Ruler,
+  Scale,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Upload,
+  X,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { CLAVE_IDIOMA, IDIOMAS_DISPONIBLES } from '../../i18n'
@@ -22,10 +37,11 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  HeroStat,
   PageTitle,
+  Pill,
   SectionLabel,
   SkeletonList,
-  StatCard,
   Thumbnail,
 } from '../../components/ui'
 import { Footer } from '../../components/Footer'
@@ -79,7 +95,6 @@ import {
   mediaMovil7,
   pesoActualConDelta,
   ritmoSemanalNecesario,
-  type ColorClasificacion,
   type PuntoPeso,
   type Rango,
 } from './utils'
@@ -95,16 +110,6 @@ const tooltipStyle = {
   border: '1px solid var(--color-border)',
   borderRadius: 12,
   color: 'var(--color-fg)',
-}
-
-// Clases estaticas: Tailwind no detecta clases construidas con template
-// literals, asi que el color de la clasificacion del IMC sale de un mapa
-// fijo con las cuatro variantes escritas literalmente.
-const imcColorClass: Record<ColorClasificacion, string> = {
-  accent: 'text-accent',
-  success: 'text-success',
-  warning: 'text-warning',
-  danger: 'text-danger',
 }
 
 const CATEGORIAS_HABITUALES = [
@@ -132,6 +137,10 @@ function PerfilTab() {
   const guardarObjetivo = useGuardarObjetivo()
 
   const [form, setForm] = useState<UserProfilePatch | null>(null)
+  // Ultimo valor guardado de verdad (sembrado una vez, junto con `form`, y
+  // actualizado tras cada guardado), para saber si hay cambios sin guardar
+  // y mostrar la barra flotante solo entonces -- no en cada tecla.
+  const [formInicial, setFormInicial] = useState<UserProfilePatch | null>(null)
   // Borrador local del objetivo: el usuario escribe aqui y se guarda con
   // retardo (ver actualizarObjetivo), igual que `form` de arriba espera a
   // que llegue el perfil del servidor antes de sembrarse. `objetivo` (sin
@@ -148,7 +157,7 @@ function PerfilTab() {
 
   useEffect(() => {
     if (profileQ.data && form === null) {
-      setForm({
+      const inicial = {
         birthdate: profileQ.data.birthdate,
         gender: profileQ.data.gender,
         height: profileQ.data.height,
@@ -157,7 +166,9 @@ function PerfilTab() {
         sport_intensity: profileQ.data.sport_intensity,
         freetime_intensity: profileQ.data.freetime_intensity,
         calories: profileQ.data.calories,
-      })
+      }
+      setForm(inicial)
+      setFormInicial(inicial)
     }
   }, [profileQ.data, form])
 
@@ -232,36 +243,105 @@ function PerfilTab() {
     return <ErrorState message="No se ha podido cargar el perfil." onRetry={() => void profileQ.refetch()} />
   }
 
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Edad" value={edad !== null ? int(edad) : '-'} unit="años" accent="accent" />
-        <StatCard
-          label="Peso actual"
-          value={pesoActual ? num(pesoActual.actual) : '-'}
-          unit="kg"
-          delta={pesoActual?.delta7d ?? null}
-          invertDelta
-          accent="primary"
-        />
-      </div>
+  const dirty = formInicial !== null && JSON.stringify(form) !== JSON.stringify(formInicial)
 
-      <Card>
-        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">IMC</p>
-        <div className="mt-1 flex items-baseline gap-3">
-          <p className="font-display text-5xl leading-none tnum">{imc !== null ? num(imc) : '-'}</p>
-          {clasificacion ? (
-            <span className={`text-sm font-semibold ${imcColorClass[clasificacion.color]}`}>
-              {clasificacion.etiqueta}
-            </span>
-          ) : (
-            <span className="text-sm text-fg-subtle">Falta peso o altura</span>
-          )}
+  function guardarPerfil() {
+    if (!form) return
+    const snapshot = form
+    updateProfile.mutate(snapshot, {
+      onSuccess: () => setFormInicial(snapshot),
+    })
+  }
+
+  return (
+    <div className="animate-rise space-y-5">
+      <Card className="p-5">
+        <div className="lg:grid lg:grid-cols-[auto_minmax(0,1fr)] lg:items-end lg:gap-8">
+          <HeroStat label="Peso actual" value={pesoActual ? num(pesoActual.actual) : '-'} unit="kg" />
+          <div className="mt-3 flex flex-wrap items-center gap-2 lg:mt-0">
+            {pesoActual?.delta7d !== null && pesoActual?.delta7d !== undefined && pesoActual.delta7d !== 0 ? (
+              <Pill
+                icon={pesoActual.delta7d > 0 ? TrendingUp : TrendingDown}
+                tone={pesoActual.delta7d > 0 ? 'danger' : 'success'}
+              >
+                {pesoActual.delta7d > 0 ? '+' : ''}
+                {num(pesoActual.delta7d)} kg / 7d
+              </Pill>
+            ) : null}
+            <Pill tone={clasificacion ? clasificacion.color : 'neutral'}>
+              IMC {imc !== null ? num(imc) : '-'}
+              {clasificacion ? ` · ${clasificacion.etiqueta}` : ''}
+            </Pill>
+            {edad !== null ? <Pill>{int(edad)} años</Pill> : null}
+            {form.height ? <Pill>{form.height} cm</Pill> : null}
+          </div>
         </div>
       </Card>
 
       <Card>
-        <SectionLabel>Datos personales</SectionLabel>
+        <div className="flex items-center justify-between gap-3">
+          <SectionLabel>Objetivo de peso</SectionLabel>
+          {objetivo.peso !== null ? (
+            <p className="font-display text-3xl leading-none tnum">
+              {num(objetivo.peso)}
+              <span className="ml-1 text-base text-fg-muted">kg</span>
+            </p>
+          ) : null}
+        </div>
+
+        {progresoObjetivo !== null && objetivo.peso !== null && pesoActual ? (
+          <div className="mt-3">
+            <BarraProgreso
+              porcentaje={progresoObjetivo}
+              etiqueta={`${num(pesoActual.actual)} kg de ${num(objetivo.peso)} kg objetivo (${progresoObjetivo}%)`}
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {ritmo !== null ? (
+                <Pill>
+                  Ritmo: {ritmo > 0 ? '+' : ''}
+                  {num(ritmo)} kg/semana
+                </Pill>
+              ) : null}
+              {objetivo.fecha ? <Pill icon={CalendarDays}>Para el {shortDate(objetivo.fecha)}</Pill> : null}
+              <Pill>Faltan {num(Math.abs(objetivo.peso - pesoActual.actual))} kg</Pill>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field
+            label="Peso objetivo"
+            type="number"
+            inputMode="decimal"
+            hint="kg"
+            value={objetivo.peso ?? ''}
+            onChange={(e) => actualizarObjetivo({ peso: e.target.value ? Number(e.target.value) : null })}
+          />
+          <Field
+            label="Fecha objetivo"
+            type="date"
+            value={objetivo.fecha ?? ''}
+            onChange={(e) => actualizarObjetivo({ fecha: e.target.value || null })}
+          />
+          <SelectField
+            label="Tipo de objetivo"
+            value={objetivo.tipo ?? ''}
+            onChange={(e) =>
+              actualizarObjetivo({ tipo: (e.target.value || null) as TipoObjetivo | null })
+            }
+          >
+            <option value="">Sin definir</option>
+            {TIPOS_OBJETIVO.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </SelectField>
+        </div>
+      </Card>
+
+      <Card>
+        <SectionLabel>Sobre ti</SectionLabel>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field
             label="Fecha de nacimiento"
@@ -293,103 +373,63 @@ function PerfilTab() {
             <option value="kg">Métrico (kg)</option>
             <option value="lb">Imperial (lb)</option>
           </SelectField>
-          <SelectField
-            label="Intensidad trabajo"
-            value={form.work_intensity}
-            onChange={(e) => setForm({ ...form, work_intensity: e.target.value as '1' | '2' | '3' })}
-          >
-            <option value="1">Baja</option>
-            <option value="2">Media</option>
-            <option value="3">Alta</option>
-          </SelectField>
-          <SelectField
-            label="Intensidad deporte"
-            value={form.sport_intensity}
-            onChange={(e) => setForm({ ...form, sport_intensity: e.target.value as '1' | '2' | '3' })}
-          >
-            <option value="1">Baja</option>
-            <option value="2">Media</option>
-            <option value="3">Alta</option>
-          </SelectField>
-          <SelectField
-            label="Intensidad tiempo libre"
-            value={form.freetime_intensity}
-            onChange={(e) => setForm({ ...form, freetime_intensity: e.target.value as '1' | '2' | '3' })}
-          >
-            <option value="1">Baja</option>
-            <option value="2">Media</option>
-            <option value="3">Alta</option>
-          </SelectField>
+        </div>
+
+        <div className="mt-4 border-t border-border pt-4">
+          <SectionLabel>Actividad</SectionLabel>
+          <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <SelectField
+              label="Intensidad trabajo"
+              value={form.work_intensity}
+              onChange={(e) => setForm({ ...form, work_intensity: e.target.value as '1' | '2' | '3' })}
+            >
+              <option value="1">Baja</option>
+              <option value="2">Media</option>
+              <option value="3">Alta</option>
+            </SelectField>
+            <SelectField
+              label="Intensidad deporte"
+              value={form.sport_intensity}
+              onChange={(e) => setForm({ ...form, sport_intensity: e.target.value as '1' | '2' | '3' })}
+            >
+              <option value="1">Baja</option>
+              <option value="2">Media</option>
+              <option value="3">Alta</option>
+            </SelectField>
+            <SelectField
+              label="Intensidad tiempo libre"
+              value={form.freetime_intensity}
+              onChange={(e) => setForm({ ...form, freetime_intensity: e.target.value as '1' | '2' | '3' })}
+            >
+              <option value="1">Baja</option>
+              <option value="2">Media</option>
+              <option value="3">Alta</option>
+            </SelectField>
+          </div>
           <Field
             label="Calorías objetivo"
             type="number"
             inputMode="numeric"
+            className="mt-4"
             value={form.calories ?? ''}
             onChange={(e) => setForm({ ...form, calories: e.target.value ? Number(e.target.value) : 0 })}
           />
         </div>
-
-        <div className="mt-4 flex items-center gap-3">
-          <Button
-            type="button"
-            onClick={() => updateProfile.mutate(form)}
-            disabled={updateProfile.isPending}
-          >
-            {updateProfile.isPending ? 'Guardando...' : 'Guardar cambios'}
-          </Button>
-          {updateProfile.isSuccess ? <span className="text-sm text-success">Guardado</span> : null}
-          {updateProfile.isError ? <span className="text-sm text-danger">Error al guardar</span> : null}
-        </div>
       </Card>
 
-      <Card>
-        <SectionLabel>Objetivo de peso</SectionLabel>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Field
-            label="Peso objetivo"
-            type="number"
-            inputMode="decimal"
-            hint="kg"
-            value={objetivo.peso ?? ''}
-            onChange={(e) => actualizarObjetivo({ peso: e.target.value ? Number(e.target.value) : null })}
-          />
-          <Field
-            label="Fecha objetivo"
-            type="date"
-            value={objetivo.fecha ?? ''}
-            onChange={(e) => actualizarObjetivo({ fecha: e.target.value || null })}
-          />
-          <SelectField
-            label="Tipo de objetivo"
-            value={objetivo.tipo ?? ''}
-            onChange={(e) =>
-              actualizarObjetivo({ tipo: (e.target.value || null) as TipoObjetivo | null })
-            }
-          >
-            <option value="">Sin definir</option>
-            {TIPOS_OBJETIVO.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </SelectField>
-        </div>
-
-        {progresoObjetivo !== null && objetivo.peso !== null && pesoActual ? (
-          <div className="mt-4">
-            <BarraProgreso
-              porcentaje={progresoObjetivo}
-              etiqueta={`${num(pesoActual.actual)} kg de ${num(objetivo.peso)} kg objetivo (${progresoObjetivo}%)`}
-            />
-            {ritmo !== null ? (
-              <p className="mt-2 text-sm text-fg-muted tnum">
-                Ritmo necesario: {ritmo > 0 ? '+' : ''}
-                {num(ritmo)} kg/semana
-              </p>
-            ) : null}
+      {dirty ? (
+        <div className="glass fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 border-t border-border px-4 py-3 lg:bottom-0">
+          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+            <span className="text-sm text-fg-muted">Cambios sin guardar</span>
+            <div className="flex items-center gap-3">
+              {updateProfile.isError ? <span className="text-sm text-danger">Error al guardar</span> : null}
+              <Button size="sm" onClick={guardarPerfil} disabled={updateProfile.isPending}>
+                {updateProfile.isPending ? 'Guardando...' : 'Guardar cambios'}
+              </Button>
+            </div>
           </div>
-        ) : null}
-      </Card>
+        </div>
+      ) : null}
     </div>
   )
 }

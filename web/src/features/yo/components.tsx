@@ -124,7 +124,7 @@ export function TabBar({ activa, onChange }: { activa: TabId; onChange: (t: TabI
           aria-controls={`panel-${t.id}`}
           onClick={() => onChange(t.id)}
           className={`h-11 flex-1 rounded-[10px] text-sm font-semibold transition-colors duration-150 ${
-            activa === t.id ? 'bg-primary text-on-primary' : 'text-fg-muted hover:text-fg'
+            activa === t.id ? 'bg-primary/15 text-primary' : 'text-fg-muted hover:text-fg'
           }`}
         >
           {t.label}

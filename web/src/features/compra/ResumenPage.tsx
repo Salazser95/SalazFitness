@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { CalendarDays, Users } from 'lucide-react'
 import {
   Bar,
   BarChart,
@@ -12,7 +13,7 @@ import {
   YAxis,
 } from 'recharts'
 
-import { Card, ErrorState, SectionLabel, SkeletonList, StatCard } from '../../components/ui'
+import { Card, ErrorState, HeroStat, Pill, SectionLabel, SkeletonList } from '../../components/ui'
 import { eur } from '../../lib/format'
 import { costeDiarioPorPersona, eurosACentimos } from './calculo'
 import { useCosteMedioPorComida, useGastoSemanal, useHousehold, useHouseholdSummary } from './datos'
@@ -69,32 +70,76 @@ export default function ResumenPage() {
     })
   }, [resumen.data])
 
-  if (cargando) return <SkeletonList rows={4} height="h-28" />
+  if (cargando) {
+    return (
+      <div className="space-y-5">
+        <SkeletonList rows={1} height="h-40" />
+        <SkeletonList rows={1} height="h-24" />
+        <SkeletonList rows={2} height="h-64" />
+      </div>
+    )
+  }
   if (error || !resumen.data) return <ErrorState onRetry={() => resumen.refetch()} />
+
+  const ultimaSemana = datosBarras.at(-1)
 
   return (
     <div className="animate-rise space-y-5">
-      <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Coste del mes" value={eur(resumen.data.total)} accent="violet" />
-        <StatCard label="Coste por persona" value={eur(costePorPersonaCentimos / 100)} accent="violet" />
-        <StatCard
-          label="Media diaria / persona"
-          value={eur(costeDiarioPorPersona(costePorPersonaCentimos, DIAS_VENTANA) / 100)}
+      <Card className="p-5">
+        <HeroStat
+          label={`Gasto · últimos ${DIAS_VENTANA} días`}
+          value={eur(resumen.data.total)}
           accent="violet"
         />
-        <StatCard
-          label="Coste por comida"
-          value={costeComida.data ? eur(costeComida.data / 100) : eur(0)}
-          accent="violet"
-        />
-      </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Pill icon={Users}>{numPersonas} personas</Pill>
+          <Pill icon={CalendarDays}>{eur(resumen.data.daily)} / día</Pill>
+          <Pill>{eur(resumen.data.weekly)} / semana</Pill>
+        </div>
+      </Card>
+
+      <Card className="p-0">
+        <div className="grid grid-cols-3 divide-x divide-border">
+          <div className="px-3 py-4 text-center">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">
+              Por persona
+            </p>
+            <p className="mt-1 font-display text-2xl tnum text-fg lg:text-3xl">
+              {eur(costePorPersonaCentimos / 100)}
+            </p>
+          </div>
+          <div className="px-3 py-4 text-center">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">
+              Al día / persona
+            </p>
+            <p className="mt-1 font-display text-2xl tnum text-fg lg:text-3xl">
+              {eur(costeDiarioPorPersona(costePorPersonaCentimos, DIAS_VENTANA) / 100)}
+            </p>
+          </div>
+          <div className="px-3 py-4 text-center">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">
+              Por comida
+            </p>
+            <p className="mt-1 font-display text-2xl tnum text-fg lg:text-3xl">
+              {costeComida.data ? eur(costeComida.data / 100) : eur(0)}
+            </p>
+          </div>
+        </div>
+      </Card>
 
       <Card>
-        <SectionLabel>Evolución del gasto por semana</SectionLabel>
+        <div className="flex items-center justify-between gap-2">
+          <SectionLabel>Evolución del gasto por semana</SectionLabel>
+          {ultimaSemana ? (
+            <span className="tnum text-sm text-fg-muted">
+              Última semana: {eur(ultimaSemana.total)}
+            </span>
+          ) : null}
+        </div>
         {datosBarras.length === 0 ? (
           <p className="py-8 text-center text-sm text-fg-muted">Todavía no hay compras suficientes.</p>
         ) : (
-          <div className="h-56 w-full">
+          <div className="h-56 w-full lg:h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={datosBarras} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
@@ -133,8 +178,8 @@ export default function ResumenPage() {
         {datosTarta.length === 0 ? (
           <p className="py-8 text-center text-sm text-fg-muted">Todavía no hay gasto que repartir.</p>
         ) : (
-          <div className="flex flex-col items-center gap-4 sm:flex-row">
-            <div className="h-48 w-48 shrink-0">
+          <div className="lg:grid lg:grid-cols-[12rem_minmax(0,1fr)] lg:items-center lg:gap-6">
+            <div className="relative mx-auto h-48 w-48 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={datosTarta} dataKey="value" nameKey="name" innerRadius={44} outerRadius={72} paddingAngle={2}>
@@ -153,21 +198,36 @@ export default function ResumenPage() {
                   />
                 </PieChart>
               </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <p className="font-display text-2xl tnum leading-none text-fg">{eur(resumen.data.total)}</p>
+                <p className="mt-0.5 text-[11px] uppercase tracking-[0.08em] text-fg-muted">total</p>
+              </div>
             </div>
-            <ul className="w-full space-y-2">
+            <ul className="mt-4 w-full space-y-2.5 lg:mt-0">
               {datosTarta.map((d, i) => (
-                <li key={d.name} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="flex items-center gap-2 text-fg">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ background: COLORES_GRAFICA[i % COLORES_GRAFICA.length] }}
-                      aria-hidden="true"
+                <li key={d.name} className="text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-fg">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ background: COLORES_GRAFICA[i % COLORES_GRAFICA.length] }}
+                        aria-hidden="true"
+                      />
+                      {d.name}
+                    </span>
+                    <span className="tnum text-fg-muted">
+                      {eur(d.value)} · {d.porcentaje.toLocaleString('es-ES')}%
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${d.porcentaje}%`,
+                        background: COLORES_GRAFICA[i % COLORES_GRAFICA.length],
+                      }}
                     />
-                    {d.name}
-                  </span>
-                  <span className="tnum text-fg-muted">
-                    {eur(d.value)} · {d.porcentaje.toLocaleString('es-ES')}%
-                  </span>
+                  </div>
                 </li>
               ))}
             </ul>
