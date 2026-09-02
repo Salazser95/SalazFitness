@@ -111,7 +111,7 @@ test.describe('DayNavigator: objetivos táctiles y accesibilidad', () => {
 test.describe('DayNavigator: deslizar en la cabecera (solo táctil)', () => {
   test.use({ hasTouch: true })
 
-  test('deslizar a la izquierda por encima del umbral avanza un día', async ({ page }) => {
+  test('deslizar a la derecha por encima del umbral avanza un día', async ({ page }) => {
     await page.goto(RUTA)
     const objetivo = page.locator('p[aria-live="polite"]').locator('xpath=..')
     const caja = await objetivo.boundingBox()
@@ -129,14 +129,14 @@ test.describe('DayNavigator: deslizar en la cabecera (solo táctil)', () => {
     await objetivo.dispatchEvent('pointermove', {
       pointerId: 1,
       pointerType: 'touch',
-      clientX: inicioX - 70,
+      clientX: inicioX + 70,
       clientY: centroY,
       bubbles: true,
     })
     await objetivo.dispatchEvent('pointerup', {
       pointerId: 1,
       pointerType: 'touch',
-      clientX: inicioX - 70,
+      clientX: inicioX + 70,
       clientY: centroY,
       bubbles: true,
     })
@@ -144,7 +144,7 @@ test.describe('DayNavigator: deslizar en la cabecera (solo táctil)', () => {
     await expect(page.getByTestId('fecha-actual')).toHaveText(sumarDias(hoyIso(), 1))
   })
 
-  test('deslizar a la derecha por encima del umbral retrocede un día', async ({ page }) => {
+  test('deslizar a la izquierda por encima del umbral retrocede un día', async ({ page }) => {
     await page.goto(RUTA)
     const objetivo = page.locator('p[aria-live="polite"]').locator('xpath=..')
     const caja = await objetivo.boundingBox()
@@ -162,14 +162,14 @@ test.describe('DayNavigator: deslizar en la cabecera (solo táctil)', () => {
     await objetivo.dispatchEvent('pointermove', {
       pointerId: 1,
       pointerType: 'touch',
-      clientX: inicioX + 70,
+      clientX: inicioX - 70,
       clientY: centroY,
       bubbles: true,
     })
     await objetivo.dispatchEvent('pointerup', {
       pointerId: 1,
       pointerType: 'touch',
-      clientX: inicioX + 70,
+      clientX: inicioX - 70,
       clientY: centroY,
       bubbles: true,
     })
