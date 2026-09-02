@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BedDouble, Dumbbell, Flame } from 'lucide-react'
+import { BedDouble, ChevronLeft, ChevronRight, Dumbbell, Flame } from 'lucide-react'
 
 import {
   Card,
@@ -12,7 +12,8 @@ import {
   StatCard,
 } from '../../components/ui'
 import { DayNavigator } from '../../components/DayNavigator'
-import { int, num, shortDate, today } from '../../lib/format'
+import { addDays, int, num, shortDate, today } from '../../lib/format'
+import { useSwipe } from '../../lib/useSwipe'
 import { useWorkoutSessions } from '../entreno/api'
 import { AntesDeEmpezar } from '../entreno/components/AntesDeEmpezar'
 import { useEstadoDelDia } from '../entreno/estadoDelDia'
@@ -27,10 +28,15 @@ export default function HoyPage() {
 
   const estado = useEstadoDelDia(fecha)
 
+  // Ventana de 5 dias independiente del dia seleccionado arriba: por defecto
+  // anclada a hoy, y se desliza de 5 en 5 (derecha = siguientes, izquierda =
+  // anteriores), con las flechas como alternativa siempre disponible.
+  const [anclaProximos, setAnclaProximos] = useState(hoyReal)
   const proximosDias = useMemo(
-    () => (estado.secuencia ?? []).filter((d) => d.date > fecha).slice(0, 5),
-    [estado.secuencia, fecha],
+    () => (estado.secuencia ?? []).filter((d) => d.date > anclaProximos).slice(0, 5),
+    [estado.secuencia, anclaProximos],
   )
+  const swipeProximos = useSwipe((direccion) => setAnclaProximos((a) => addDays(a, direccion * 5)))
 
   // ---- Estadisticas: siempre del dia real, aunque se este mirando otra fecha ----
   const pesoQ = useWeightEntries()
@@ -105,11 +111,39 @@ export default function HoyPage() {
         ) : null}
       </div>
 
-      {/* Proximos dias, relativos a la fecha que se esta mirando */}
-      {proximosDias.length > 0 ? (
+      {/* Proximos dias: ventana propia de 5 dias, deslizable, anclada a hoy por defecto */}
+      {estado.secuencia && estado.secuencia.length > 0 ? (
         <div>
-          <SectionLabel>Próximos días</SectionLabel>
-          <div className="flex gap-3 overflow-x-auto pb-1">
+          <div className="mb-1 flex items-center justify-between">
+            <SectionLabel>Próximos días</SectionLabel>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setAnclaProximos((a) => addDays(a, -5))}
+                aria-label="5 días anteriores"
+                className="flex h-8 w-8 items-center justify-center rounded-[10px] text-fg-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
+              >
+                <ChevronLeft size={16} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setAnclaProximos((a) => addDays(a, 5))}
+                aria-label="5 días siguientes"
+                className="flex h-8 w-8 items-center justify-center rounded-[10px] text-fg-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
+              >
+                <ChevronRight size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <div
+            key={anclaProximos}
+            {...swipeProximos.handlers}
+            style={swipeProximos.estiloArrastre}
+            className="animate-rise flex touch-pan-y gap-3 overflow-x-auto pb-1"
+          >
+            {proximosDias.length === 0 ? (
+              <p className="px-1 py-2 text-sm text-fg-subtle">No hay días en este rango.</p>
+            ) : null}
             {proximosDias.map((d) => {
               const descanso = !d.day || d.day.is_rest
               return (

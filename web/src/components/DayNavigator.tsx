@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import { useRef } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 
 import { addDays, longDate, today } from '../lib/format'
+import { useSwipe } from '../lib/useSwipe'
 
 /**
  * Selector de fecha reutilizado por Hoy y por el calendario de Entreno: los
@@ -12,11 +12,10 @@ import { addDays, longDate, today } from '../lib/format'
  *
  * El deslizamiento horizontal es solo un atajo sobre la cabecera: los
  * botones y el calendario funcionan siempre, con o sin gesto (importante
- * porque un mando, un lector de pantalla o un ratón nunca deslizan).
+ * porque un mando, un lector de pantalla o un ratón nunca deslizan). Derecha
+ * = día siguiente, izquierda = día anterior (mismo convenio que el carrusel
+ * de "Próximos días" de Hoy).
  */
-
-const UMBRAL_DESLIZAR_PX = 56
-const LIMITE_ARRASTRE_PX = 80
 
 type DayNavigatorProps = {
   fecha: string
@@ -27,34 +26,7 @@ type DayNavigatorProps = {
 export function DayNavigator({ fecha, onFechaChange, className = '' }: DayNavigatorProps) {
   const esHoy = fecha === today()
   const inputFechaRef = useRef<HTMLInputElement>(null)
-  const [arrastreX, setArrastreX] = useState(0)
-  const [arrastrando, setArrastrando] = useState(false)
-  const inicioXRef = useRef<number | null>(null)
-
-  const prefiereMenosMovimiento =
-    typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-
-  function manejarPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    // El gesto es solo para dedo/lápiz: con ratón ya están los botones.
-    if (e.pointerType === 'mouse') return
-    inicioXRef.current = e.clientX
-    setArrastrando(true)
-  }
-
-  function manejarPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    if (inicioXRef.current === null) return
-    const delta = e.clientX - inicioXRef.current
-    setArrastreX(Math.max(-LIMITE_ARRASTRE_PX, Math.min(LIMITE_ARRASTRE_PX, delta)))
-  }
-
-  function soltar() {
-    if (inicioXRef.current === null) return
-    if (arrastreX <= -UMBRAL_DESLIZAR_PX) onFechaChange(addDays(fecha, 1))
-    else if (arrastreX >= UMBRAL_DESLIZAR_PX) onFechaChange(addDays(fecha, -1))
-    inicioXRef.current = null
-    setArrastrando(false)
-    setArrastreX(0)
-  }
+  const swipe = useSwipe((direccion) => onFechaChange(addDays(fecha, direccion)))
 
   function abrirCalendario() {
     const el = inputFechaRef.current
@@ -75,16 +47,9 @@ export function DayNavigator({ fecha, onFechaChange, className = '' }: DayNaviga
       </button>
 
       <div
-        onPointerDown={manejarPointerDown}
-        onPointerMove={manejarPointerMove}
-        onPointerUp={soltar}
-        onPointerCancel={soltar}
+        {...swipe.handlers}
         className="flex min-w-0 flex-1 touch-pan-y select-none flex-col items-center justify-center rounded-[14px] border border-border bg-surface-2 px-3 py-2 text-center"
-        style={{
-          transform:
-            arrastreX && !prefiereMenosMovimiento ? `translateX(${arrastreX}px)` : undefined,
-          transition: arrastrando || prefiereMenosMovimiento ? 'none' : 'transform 150ms ease-out',
-        }}
+        style={swipe.estiloArrastre}
       >
         <p aria-live="polite" className="truncate text-sm font-semibold capitalize text-fg">
           {longDate(fecha)}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Apple, ChevronLeft, ChevronRight, Copy, GlassWater, Plus, Trash2, UtensilsCrossed } from 'lucide-react'
 
 import { Button, Card, EmptyState, ErrorState, SectionLabel, SkeletonList } from '../../components/ui'
+import { useSwipe } from '../../lib/useSwipe'
 import { AnotarRecetaModal } from '../compra/componentes/AnotarRecetaModal'
 import { recetaDelDia, usePlanSemana } from '../compra/planLocal'
 import {
@@ -58,6 +59,10 @@ function SelectorFecha({
   fecha: string
   onCambiar: (siguiente: string) => void
 }) {
+  // Derecha = dia siguiente, izquierda = dia anterior (mismo convenio que
+  // DayNavigator y el carrusel de "Proximos dias" de Hoy).
+  const swipe = useSwipe((direccion) => onCambiar(sumarDias(fecha, direccion)))
+
   return (
     <Card className="flex items-center justify-between gap-2 px-3 py-2.5">
       <button
@@ -68,7 +73,11 @@ function SelectorFecha({
       >
         <ChevronLeft size={20} aria-hidden="true" />
       </button>
-      <div className="text-center">
+      <div
+        {...swipe.handlers}
+        style={swipe.estiloArrastre}
+        className="touch-pan-y select-none text-center"
+      >
         <p className="font-display text-lg capitalize leading-tight text-fg">
           {shortDate(`${fecha}T00:00:00`)}
         </p>
