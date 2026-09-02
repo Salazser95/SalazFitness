@@ -35,4 +35,6 @@ export type SesionProgreso = {
   ejercicios: EjercicioProgreso[]
   /** id del workoutsession ya creado en el backend, o null si "Terminar" aun no se ha pulsado con exito. */
   sesionId: string | null
+  /** Fecha y hora (ISO) de cuando se empezo esta sesion, para el cronometro y para time_start. */
+  horaInicio: string
 }

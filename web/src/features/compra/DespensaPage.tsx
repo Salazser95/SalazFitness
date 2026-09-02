@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Check, PackagePlus, Pencil, Trash2, X } from 'lucide-react'
 
-import { Button, Card, ConfirmModal, ErrorState, Field, SectionLabel, SkeletonList } from '../../components/ui'
+import { Button, Card, ErrorState, Field, SectionLabel, SkeletonList, UndoBar } from '../../components/ui'
 import { num } from '../../lib/format'
+import { useUndoStack } from '../../lib/undo'
 import { BuscadorIngrediente } from './componentes/BuscadorIngrediente'
 import { useCrearPantryItem, useEliminarPantryItem, useHousehold, useIngredienteWger, usePantryItems, useActualizarPantryItem } from './datos'
 import type { PantryItem } from './tipos'
@@ -26,7 +27,7 @@ function FilaDespensa({
 }: {
   item: PantryItem
   onGuardar: (amount: number) => void
-  onEliminar: () => void
+  onEliminar: (nombre: string) => void
 }) {
   const infoIngrediente = useIngredienteWger(item.ingredient ?? 0)
   const nombre = item.ingredient
@@ -102,7 +103,7 @@ function FilaDespensa({
           type="button"
           className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-danger"
           aria-label={`Quitar ${nombre} de la despensa`}
-          onClick={onEliminar}
+          onClick={() => onEliminar(nombre)}
         >
           <Trash2 size={16} aria-hidden="true" />
         </button>
@@ -123,7 +124,7 @@ export default function DespensaPage() {
   const [nuevoIngredientId, setNuevoIngredientId] = useState<number | null>(null)
   const [nuevaUnidad, setNuevaUnidad] = useState('unit')
   const [nuevaCantidad, setNuevaCantidad] = useState('1')
-  const [aBorrar, setABorrar] = useState<PantryItem | null>(null)
+  const deshacer = useUndoStack()
 
   function anadir() {
     const nombre = nuevoNombre.trim()
@@ -146,10 +147,22 @@ export default function DespensaPage() {
     )
   }
 
-  function onEliminarConfirmado() {
-    if (!aBorrar) return
-    eliminar.mutate({ id: aBorrar.id, household: aBorrar.household })
-    setABorrar(null)
+  // Sin confirmar: se quita directamente, y se puede deshacer justo despues.
+  function borrarLinea(item: PantryItem, nombre: string) {
+    eliminar.mutate({ id: item.id, household: item.household })
+    deshacer.registrar({
+      etiqueta: `${nombre} quitado de la despensa`,
+      restaurar: () =>
+        crear
+          .mutateAsync({
+            household: item.household,
+            ingredient: item.ingredient,
+            name: item.name,
+            unit: item.unit,
+            amount: item.amount,
+          })
+          .then(() => undefined),
+    })
   }
 
   if (household.isLoading || items.isLoading) return <SkeletonList rows={4} height="h-16" />
@@ -177,7 +190,7 @@ export default function DespensaPage() {
               key={item.id}
               item={item}
               onGuardar={(amount) => actualizar.mutate({ id: item.id, household: item.household, amount })}
-              onEliminar={() => setABorrar(item)}
+              onEliminar={(nombre) => borrarLinea(item, nombre)}
             />
           ))}
         </ul>
@@ -235,12 +248,11 @@ export default function DespensaPage() {
       {actualizar.isError ? <p className="text-sm text-danger">No se pudo guardar la cantidad.</p> : null}
       {eliminar.isError ? <p className="text-sm text-danger">No se pudo quitar la línea.</p> : null}
 
-      <ConfirmModal
-        open={aBorrar !== null}
-        onClose={() => setABorrar(null)}
-        onConfirm={onEliminarConfirmado}
-        title="Quitar de la despensa"
-        description="Se quitará esta línea de la despensa."
+      <UndoBar
+        visible={deshacer.pendientes > 0}
+        etiqueta={deshacer.error ?? deshacer.etiquetaUltima}
+        onDeshacer={() => void deshacer.deshacer()}
+        deshaciendo={deshacer.deshaciendo}
       />
     </div>
   )

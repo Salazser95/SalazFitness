@@ -2,16 +2,21 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, CalendarDays, Check, ChevronDown, ChevronUp, Trash2, X } from 'lucide-react'
 
-import { Card, ConfirmModal, EmptyState, ErrorState, PageTitle, SkeletonList } from '../../components/ui'
-import { kg, num, shortDate } from '../../lib/format'
+import { Card, ConfirmModal, EmptyState, ErrorState, PageTitle, SkeletonList, UndoBar } from '../../components/ui'
+import { kg, num, sessionDuration, shortDate } from '../../lib/format'
+import { useUndoStack, type AccionDeshacer } from '../../lib/undo'
 import {
   useActualizarSerie,
+  useCrearSesion,
   useEliminarSerie,
+  useEliminarSesion,
   useExerciseNames,
+  useRegistrarSerie,
   useRoutines,
   useWorkoutLogsBySession,
   useWorkoutSessions,
   type WorkoutLog,
+  type WorkoutSession,
 } from './api'
 
 const IMPRESION_TEXTO: Record<string, string> = {
@@ -24,6 +29,25 @@ const IMPRESION_COLOR: Record<string, string> = {
   '1': 'text-danger',
   '2': 'text-fg-muted',
   '3': 'text-success',
+}
+
+/** Recrea un workoutlog borrado, tal cual estaba, en la sesion que se indique. */
+function recrearLog(
+  registrarSerie: ReturnType<typeof useRegistrarSerie>,
+  sessionId: string,
+  log: WorkoutLog,
+): Promise<WorkoutLog> {
+  return registrarSerie.mutateAsync({
+    session: sessionId,
+    routine: log.routine,
+    exercise: log.exercise,
+    slot_entry: log.slot_entry ?? 0,
+    weight: log.weight ?? undefined,
+    repetitions: log.repetitions ?? undefined,
+    rir: log.rir ?? undefined,
+    rest: log.rest ?? undefined,
+    date: log.date,
+  })
 }
 
 /** Fila de una serie ya registrada: tocar el texto la pone en modo edicion. */
@@ -120,12 +144,18 @@ function FilaLog({
   )
 }
 
-function SesionLogs({ sessionId }: { sessionId: string }) {
+function SesionLogs({
+  sessionId,
+  registrarDeshacer,
+}: {
+  sessionId: string
+  registrarDeshacer: (accion: AccionDeshacer) => void
+}) {
   const logs = useWorkoutLogsBySession(sessionId)
   const nombres = useExerciseNames(useMemo(() => logs.data?.map((l) => l.exercise) ?? [], [logs.data]))
   const actualizar = useActualizarSerie()
   const eliminar = useEliminarSerie()
-  const [logABorrar, setLogABorrar] = useState<WorkoutLog | null>(null)
+  const registrarSerie = useRegistrarSerie()
 
   if (logs.isLoading) return <SkeletonList rows={2} height="h-8" />
   if (logs.isError) return <ErrorState message="No se han podido cargar las series." />
@@ -133,37 +163,33 @@ function SesionLogs({ sessionId }: { sessionId: string }) {
     return <p className="text-sm text-fg-subtle">No se registró ninguna serie en esta sesión.</p>
   }
 
-  return (
-    <>
-      <ul className="space-y-1.5 border-t border-border pt-3">
-        {logs.data.map((log) => (
-          <FilaLog
-            key={log.id}
-            log={log}
-            nombre={nombres.get(log.exercise) ?? `Ejercicio ${log.exercise}`}
-            guardando={actualizar.isPending && actualizar.variables?.id === log.id}
-            onGuardar={(peso, repeticiones) =>
-              actualizar.mutate({
-                id: log.id,
-                body: { weight: peso || undefined, repetitions: repeticiones || undefined },
-              })
-            }
-            onEliminar={() => setLogABorrar(log)}
-          />
-        ))}
-      </ul>
+  // Sin confirmar: borra directamente y deja un "Deshacer" para arrepentirse.
+  function borrarSerie(log: WorkoutLog, nombre: string) {
+    eliminar.mutate(log.id)
+    registrarDeshacer({
+      etiqueta: `Serie de ${nombre} eliminada`,
+      restaurar: () => recrearLog(registrarSerie, sessionId, log).then(() => undefined),
+    })
+  }
 
-      <ConfirmModal
-        open={logABorrar !== null}
-        onClose={() => setLogABorrar(null)}
-        onConfirm={() => {
-          if (logABorrar) eliminar.mutate(logABorrar.id)
-        }}
-        title="Eliminar serie"
-        description="Se borra el registro de esta serie. Si en realidad sí la hiciste, no la borres: edítala en vez de eliminarla."
-        confirmLabel="Eliminar"
-      />
-    </>
+  return (
+    <ul className="space-y-1.5 border-t border-border pt-3">
+      {logs.data.map((log) => (
+        <FilaLog
+          key={log.id}
+          log={log}
+          nombre={nombres.get(log.exercise) ?? `Ejercicio ${log.exercise}`}
+          guardando={actualizar.isPending && actualizar.variables?.id === log.id}
+          onGuardar={(peso, repeticiones) =>
+            actualizar.mutate({
+              id: log.id,
+              body: { weight: peso || undefined, repetitions: repeticiones || undefined },
+            })
+          }
+          onEliminar={() => borrarSerie(log, nombres.get(log.exercise) ?? `Ejercicio ${log.exercise}`)}
+        />
+      ))}
+    </ul>
   )
 }
 
@@ -172,12 +198,43 @@ export default function HistorialPage() {
   const sessions = useWorkoutSessions()
   const routines = useRoutines()
   const [expandido, setExpandido] = useState<string | null>(null)
+  const [diaABorrar, setDiaABorrar] = useState<WorkoutSession | null>(null)
+
+  const eliminarSesion = useEliminarSesion()
+  const crearSesion = useCrearSesion()
+  const registrarSerie = useRegistrarSerie()
+  const deshacer = useUndoStack()
 
   const nombreRutina = useMemo(() => {
     const map = new Map<number, string>()
     routines.data?.forEach((r) => map.set(r.id, r.name))
     return map
   }, [routines.data])
+
+  async function borrarDiaConfirmado() {
+    const sesion = diaABorrar
+    setDiaABorrar(null)
+    if (!sesion) return
+    const logsBorrados = await eliminarSesion.mutateAsync(sesion.id)
+    deshacer.registrar({
+      etiqueta: `Día ${shortDate(sesion.date)} eliminado`,
+      restaurar: async () => {
+        if (sesion.routine == null || sesion.day == null) {
+          throw new Error('Esta sesión no se puede recrear: le faltan la rutina o el día.')
+        }
+        const nueva = await crearSesion.mutateAsync({
+          routine: sesion.routine,
+          day: sesion.day,
+          date: sesion.date,
+          time_start: sesion.time_start ?? undefined,
+          time_end: sesion.time_end ?? undefined,
+        })
+        for (const log of logsBorrados) {
+          await recrearLog(registrarSerie, nueva.id, log)
+        }
+      },
+    })
+  }
 
   return (
     <>
@@ -213,41 +270,57 @@ export default function HistorialPage() {
         <ul className="space-y-3">
           {sessions.data.map((s) => {
             const abierto = expandido === s.id
+            const duracion = sessionDuration(s.time_start, s.time_end)
             return (
               <li key={s.id}>
                 <Card>
-                  <button
-                    type="button"
-                    onClick={() => setExpandido(abierto ? null : s.id)}
-                    className="flex w-full items-center justify-between gap-3 text-left"
-                    aria-expanded={abierto}
-                  >
-                    <span className="min-w-0">
-                      <span className="block font-display text-xl capitalize">
-                        {shortDate(s.date)}
-                      </span>
-                      <span className="block text-sm text-fg-muted">
-                        {s.routine ? (nombreRutina.get(s.routine) ?? 'Rutina') : 'Sin rutina'}
-                        {s.impression ? (
-                          <>
-                            {' · '}
-                            <span className={IMPRESION_COLOR[s.impression]}>
-                              {IMPRESION_TEXTO[s.impression]}
-                            </span>
-                          </>
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setExpandido(abierto ? null : s.id)}
+                      className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+                      aria-expanded={abierto}
+                    >
+                      <span className="min-w-0">
+                        {duracion ? (
+                          <span className="block font-display text-3xl leading-tight tnum text-primary">
+                            {duracion}
+                          </span>
                         ) : null}
+                        <span className="block font-display text-xl capitalize leading-tight">
+                          {shortDate(s.date)}
+                        </span>
+                        <span className="block text-sm text-fg-muted">
+                          {s.routine ? (nombreRutina.get(s.routine) ?? 'Rutina') : 'Sin rutina'}
+                          {s.impression ? (
+                            <>
+                              {' · '}
+                              <span className={IMPRESION_COLOR[s.impression]}>
+                                {IMPRESION_TEXTO[s.impression]}
+                              </span>
+                            </>
+                          ) : null}
+                        </span>
                       </span>
-                    </span>
-                    {abierto ? (
-                      <ChevronUp size={20} className="shrink-0 text-fg-subtle" aria-hidden="true" />
-                    ) : (
-                      <ChevronDown size={20} className="shrink-0 text-fg-subtle" aria-hidden="true" />
-                    )}
-                  </button>
+                      {abierto ? (
+                        <ChevronUp size={20} className="shrink-0 text-fg-subtle" aria-hidden="true" />
+                      ) : (
+                        <ChevronDown size={20} className="shrink-0 text-fg-subtle" aria-hidden="true" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiaABorrar(s)}
+                      aria-label={`Eliminar el día ${shortDate(s.date)} entero`}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle transition-colors duration-150 hover:bg-danger/10 hover:text-danger"
+                    >
+                      <Trash2 size={16} aria-hidden="true" />
+                    </button>
+                  </div>
 
                   {abierto ? (
                     <div className="mt-3">
-                      <SesionLogs sessionId={s.id} />
+                      <SesionLogs sessionId={s.id} registrarDeshacer={deshacer.registrar} />
                     </div>
                   ) : null}
                 </Card>
@@ -256,6 +329,22 @@ export default function HistorialPage() {
           })}
         </ul>
       ) : null}
+
+      <ConfirmModal
+        open={diaABorrar !== null}
+        onClose={() => setDiaABorrar(null)}
+        onConfirm={() => void borrarDiaConfirmado()}
+        title="Eliminar día de entrenamiento"
+        description="Se borra el día entero: la sesión y todas sus series registradas. Se puede deshacer justo después."
+        confirmLabel="Eliminar día"
+      />
+
+      <UndoBar
+        visible={deshacer.pendientes > 0}
+        etiqueta={deshacer.error ?? deshacer.etiquetaUltima}
+        onDeshacer={() => void deshacer.deshacer()}
+        deshaciendo={deshacer.deshaciendo}
+      />
     </>
   )
 }

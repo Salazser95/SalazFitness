@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { BedDouble, ChevronLeft, ChevronRight, Flag, Info } from 'lucide-react'
+import { BedDouble, ChevronLeft, ChevronRight, Clock, Flag, Info } from 'lucide-react'
 
 import { Button, Card, EmptyState, ErrorState, Modal, SkeletonList, Thumbnail } from '../../components/ui'
 import { useAjustes } from '../../lib/settings'
-import { today } from '../../lib/format'
+import { duration, hhmmss, today } from '../../lib/format'
 import {
   useCrearSesion,
   useEliminarSerie,
@@ -97,6 +97,7 @@ export default function SesionPage() {
       fecha,
       ejercicioActual: 0,
       sesionId: null,
+      horaInicio: new Date().toISOString(),
       ejercicios: ejerciciosBase.map((e) => ({
         exercise: e.exercise,
         series: e.sets.map((s, i) => ({
@@ -151,6 +152,18 @@ export default function SesionPage() {
   const registrarSerie = useRegistrarSerie()
   const eliminarSerie = useEliminarSerie()
   const [desmarcandoIdx, setDesmarcandoIdx] = useState<number | null>(null)
+
+  // Cronometro de la sesion entera: tic cada segundo mientras haya progreso,
+  // para que la pastilla del header muestre el tiempo transcurrido en vivo.
+  const [ahora, setAhora] = useState(() => Date.now())
+  useEffect(() => {
+    if (!progreso) return
+    const id = setInterval(() => setAhora(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [progreso])
+  const segundosTranscurridos = progreso
+    ? Math.max(0, Math.floor((ahora - new Date(progreso.horaInicio).getTime()) / 1000))
+    : 0
 
   if (estado.isLoading) {
     return <SkeletonList rows={4} height="h-24" />
@@ -296,12 +309,14 @@ export default function SesionPage() {
           routine: activeRoutine.id,
           day: diaHoy.day.id,
           date: fecha,
+          time_start: hhmmss(new Date(progreso.horaInicio)),
+          time_end: hhmmss(new Date()),
         })
         sesionId = sesion.id
         setProgreso((p) => (p ? { ...p, sesionId } : p))
       }
 
-      const ahora = new Date().toISOString()
+      const fechaHoraFin = new Date().toISOString()
       for (let ei = 0; ei < progreso.ejercicios.length; ei++) {
         const ej = progreso.ejercicios[ei]
         for (let si = 0; si < ej.series.length; si++) {
@@ -316,7 +331,7 @@ export default function SesionPage() {
             repetitions: s.repeticiones || undefined,
             rir: s.rir || undefined,
             rest: s.descansoSeg || undefined,
-            date: ahora,
+            date: fechaHoraFin,
           })
           setProgreso((p) => {
             if (!p) return p
@@ -348,16 +363,25 @@ export default function SesionPage() {
             Ejercicio {idx + 1} de {totalEjercicios} · {seriesCompletadas}/{totalSeries} series
           </p>
           <h1 className="font-display text-4xl leading-tight">{nombre}</h1>
-          {mostrarMediaEjercicios && hayMedia ? (
-            <button
-              type="button"
-              onClick={() => setComoHacerloAbierto(true)}
-              className="mt-1 flex h-9 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-xs font-medium text-fg-muted transition-colors duration-150 hover:bg-surface-3 hover:text-fg"
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span
+              className="flex h-7 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-xs font-medium tnum text-fg-muted"
+              aria-label={`Tiempo de entreno: ${duration(segundosTranscurridos)}`}
             >
-              <Info size={14} aria-hidden="true" />
-              Cómo hacerlo
-            </button>
-          ) : null}
+              <Clock size={13} aria-hidden="true" />
+              {duration(segundosTranscurridos)}
+            </span>
+            {mostrarMediaEjercicios && hayMedia ? (
+              <button
+                type="button"
+                onClick={() => setComoHacerloAbierto(true)}
+                className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-xs font-medium text-fg-muted transition-colors duration-150 hover:bg-surface-3 hover:text-fg"
+              >
+                <Info size={14} aria-hidden="true" />
+                Cómo hacerlo
+              </button>
+            ) : null}
+          </div>
         </div>
         <Button
           variant="secondary"

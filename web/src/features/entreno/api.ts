@@ -411,7 +411,13 @@ export function useWorkoutLogsByExercise(exerciseId: number | null) {
   })
 }
 
-export type NuevaSesion = { routine: number; day: number; date: string }
+export type NuevaSesion = {
+  routine: number
+  day: number
+  date: string
+  time_start?: string
+  time_end?: string
+}
 
 export function useCrearSesion() {
   const qc = useQueryClient()
@@ -479,6 +485,31 @@ export function useEliminarSerie() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['entreno', 'logs-session'] })
       void qc.invalidateQueries({ queryKey: ['entreno', 'logs-exercise'] })
+    },
+  })
+}
+
+/**
+ * Borra un dia de entreno entero: primero sus workoutlog (por si el borrado
+ * de la sesion no los arrastra en cascada), luego la sesion misma. Sin esto,
+ * un dia sin ninguna serie se quedaba "fantasma" en el Historial.
+ */
+export function useEliminarSesion() {
+  const qc = useQueryClient()
+  return useMutation({
+    // Devuelve los logs borrados: quien llama los necesita para poder
+    // deshacer el borrado (recrearlos), no solo para invalidar cache.
+    mutationFn: async (sessionId: string): Promise<WorkoutLog[]> => {
+      const logs = await fetchAll<WorkoutLog>(`/api/v2/workoutlog/?session=${sessionId}`)
+      for (const log of logs) {
+        await api.del<void>(`/api/v2/workoutlog/${log.id}/`)
+      }
+      await api.del<void>(`/api/v2/workoutsession/${sessionId}/`)
+      return logs
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['entreno', 'sessions'] })
+      void qc.invalidateQueries({ queryKey: ['entreno', 'logs-session'] })
     },
   })
 }

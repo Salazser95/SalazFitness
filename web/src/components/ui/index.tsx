@@ -1,4 +1,4 @@
-import { TrendingDown, TrendingUp, X } from 'lucide-react'
+import { TrendingDown, TrendingUp, Undo2, X } from 'lucide-react'
 import { createPortal } from 'react-dom'
 
 import { urlApi } from '../../lib/config'
@@ -492,6 +492,45 @@ export function ConfirmModal({
     >
       {description ? <p className="text-sm text-fg-muted">{description}</p> : null}
     </Modal>
+  )
+}
+
+// ----------------------------------------------------------------- UndoBar
+
+/**
+ * Aviso flotante tras un borrado sin confirmar, con un boton para
+ * deshacerlo. Portal a document.body (mismo motivo que Modal): que ningun
+ * ancestro con transform/filter lo encajone o lo tape.
+ */
+export function UndoBar({
+  visible,
+  etiqueta,
+  onDeshacer,
+  deshaciendo,
+}: {
+  visible: boolean
+  etiqueta: string | null
+  onDeshacer: () => void
+  deshaciendo: boolean
+}) {
+  if (!visible || !etiqueta) return null
+  return createPortal(
+    <div
+      role="status"
+      className="fixed inset-x-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 mx-auto flex max-w-sm items-center justify-between gap-3 rounded-full border border-border bg-surface-3 px-4 py-2.5 shadow-lg lg:bottom-6"
+    >
+      <span className="min-w-0 truncate text-sm text-fg">{etiqueta}</span>
+      <button
+        type="button"
+        onClick={onDeshacer}
+        disabled={deshaciendo}
+        className="flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-sm font-semibold text-on-primary transition-colors duration-150 hover:bg-primary-dim disabled:opacity-50"
+      >
+        <Undo2 size={15} aria-hidden="true" />
+        {deshaciendo ? 'Deshaciendo...' : 'Deshacer'}
+      </button>
+    </div>,
+    document.body,
   )
 }
 

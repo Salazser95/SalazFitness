@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus, SkipForward, Timer } from 'lucide-react'
+import { ChevronRight, Minus, Plus } from 'lucide-react'
 
 /**
  * Temporizador de descanso. Arranca solo al completar una serie, cuenta
- * atras, se puede saltar o alargar 30s. Al llegar a cero vibra si el
+ * atras, se puede alargar o acortar 30s. Al llegar a cero vibra si el
  * navegador lo soporta; si no, no pasa nada. Nunca sonido.
+ *
+ * Diseno (ver Figma "Sesion - con descanso activo"): -30s / tiempo centrado
+ * / +30s en una fila, y debajo un boton "Siguiente" a todo lo ancho.
  */
 
 type RestTimerProps = {
@@ -33,7 +36,7 @@ export function RestTimer({ segundosIniciales, onTerminar }: RestTimerProps) {
     }
   }, [restante, onTerminar])
 
-  function saltar() {
+  function siguiente() {
     if (terminadoRef.current) return
     terminadoRef.current = true
     onTerminar()
@@ -56,26 +59,35 @@ export function RestTimer({ segundosIniciales, onTerminar }: RestTimerProps) {
       aria-live="polite"
       aria-label={`Descanso, quedan ${mm} minutos ${ss} segundos`}
     >
-      <div className="mx-auto flex max-w-3xl items-center gap-3">
-        <Timer size={22} className="shrink-0 text-accent" aria-hidden="true" />
-        <p className="flex-1 font-display text-4xl leading-none tnum text-accent">
-          {mm}:{String(ss).padStart(2, '0')}
-        </p>
+      <div className="mx-auto max-w-3xl space-y-2.5">
+        <div className="flex items-center justify-center gap-5">
+          <button
+            type="button"
+            onClick={() => setRestante((s) => Math.max(s - 30, 0))}
+            aria-label="Quitar 30 segundos de descanso"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-surface-2 text-fg transition-colors duration-150 hover:bg-surface-3"
+          >
+            <Minus size={18} aria-hidden="true" />
+          </button>
+          <p className="w-32 text-center font-display text-5xl leading-none tnum text-accent">
+            {mm}:{String(ss).padStart(2, '0')}
+          </p>
+          <button
+            type="button"
+            onClick={() => setRestante((s) => s + 30)}
+            aria-label="Añadir 30 segundos de descanso"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-surface-2 text-fg transition-colors duration-150 hover:bg-surface-3"
+          >
+            <Plus size={18} aria-hidden="true" />
+          </button>
+        </div>
         <button
           type="button"
-          onClick={() => setRestante((s) => s + 30)}
-          className="flex h-11 items-center gap-1 rounded-[14px] border border-border bg-surface-2 px-3 text-sm font-medium text-fg transition-colors duration-150 hover:bg-surface-3"
+          onClick={siguiente}
+          className="flex h-12 w-full items-center justify-center gap-1.5 rounded-[14px] bg-primary text-base font-semibold text-on-primary transition-colors duration-150 hover:bg-primary-dim"
         >
-          <Plus size={16} aria-hidden="true" />
-          30s
-        </button>
-        <button
-          type="button"
-          onClick={saltar}
-          className="flex h-11 items-center gap-1 rounded-[14px] px-3 text-sm font-medium text-fg-muted transition-colors duration-150 hover:text-fg"
-        >
-          Saltar
-          <SkipForward size={16} aria-hidden="true" />
+          Siguiente
+          <ChevronRight size={18} aria-hidden="true" />
         </button>
       </div>
     </div>
