@@ -1,8 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, api, fetchAll } from '../../lib/api'
+import { api, fetchAll } from '../../lib/api'
 import type { Paginated } from '../../lib/api'
-import { urlApi } from '../../lib/config'
-import { readTokens } from '../../lib/tokens'
 import { today } from '../../lib/format'
 import { queryClient } from '../../lib/query'
 
@@ -231,39 +229,18 @@ export function useGalleryPhotos() {
 }
 
 /**
- * `api.post` de lib/api.ts siempre manda JSON: para subir un fichero hace
+ * `api.postForm` de lib/api.ts: un FormData en vez de JSON, porque hace
  * falta `multipart/form-data`, que el navegador construye solo a partir de
  * un `FormData` (no forzar el Content-Type a mano, o pierde el boundary).
- * Por eso esto es un fetch directo, replicando solo lo necesario del cliente
- * comun: cabecera Authorization con el access token actual y manejo de error
- * con ApiError para que la UI lo trate igual que cualquier otro fallo.
  */
 export function useUploadGalleryPhoto() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (file: File) => {
-      const tokens = readTokens()
       const body = new FormData()
       body.append('date', today())
       body.append('image', file)
-
-      const res = await fetch(urlApi('/api/v2/gallery/'), {
-        method: 'POST',
-        headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : undefined,
-        body,
-      })
-
-      if (!res.ok) {
-        let parsed: unknown = null
-        try {
-          parsed = await res.json()
-        } catch {
-          /* respuesta sin cuerpo JSON */
-        }
-        throw new ApiError(res.status, parsed)
-      }
-
-      return (await res.json()) as GalleryPhoto
+      return api.postForm<GalleryPhoto>('/api/v2/gallery/', body)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: yoKeys.gallery }),
   })

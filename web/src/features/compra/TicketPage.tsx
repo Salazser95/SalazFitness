@@ -6,19 +6,23 @@
  * calcular nada de compra por su cuenta.
  */
 
-import { useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
+  Camera,
   CheckCircle2,
   FileWarning,
+  Paperclip,
   Receipt as ReceiptIcon,
   RotateCcw,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react'
 
 import { Button, Card, ConfirmModal, EmptyState, ErrorState, SectionLabel, SkeletonList, Thumbnail } from '../../components/ui'
+import { mensajeDeError } from '../../lib/api'
 import { eur, shortDate } from '../../lib/format'
 import {
   useAnalizarTicket,
@@ -68,10 +72,32 @@ function SubirTicketCard({ householdId, onSubido }: { householdId: number; onSub
   const subir = useSubirTicket()
   const analizar = useAnalizarTicket()
   const [imagen, setImagen] = useState<File | null>(null)
+  const [previa, setPrevia] = useState<string | null>(null)
   const [markdown, setMarkdown] = useState('')
+  const inputCamaraRef = useRef<HTMLInputElement>(null)
+  const inputArchivoRef = useRef<HTMLInputElement>(null)
+
+  // La miniatura es un blob local: hay que liberarlo al cambiar de foto o al
+  // desmontar, o cada foto elegida se queda en memoria para siempre.
+  useEffect(() => {
+    return () => {
+      if (previa) URL.revokeObjectURL(previa)
+    }
+  }, [previa])
+
+  function elegirImagen(file: File | null) {
+    setPrevia((anterior) => {
+      if (anterior) URL.revokeObjectURL(anterior)
+      return file ? URL.createObjectURL(file) : null
+    })
+    setImagen(file)
+  }
 
   function onFotoElegida(e: ChangeEvent<HTMLInputElement>) {
-    setImagen(e.target.files?.[0] ?? null)
+    elegirImagen(e.target.files?.[0] ?? null)
+    // Sin esto, volver a elegir el mismo fichero (por ejemplo tras quitarlo)
+    // no dispara onChange la segunda vez, y parece que no ha pasado nada.
+    e.target.value = ''
   }
 
   function subirTicket() {
@@ -82,7 +108,7 @@ function SubirTicketCard({ householdId, onSubido }: { householdId: number; onSub
       {
         onSuccess: (ticket) => {
           onSubido(ticket.id)
-          setImagen(null)
+          elegirImagen(null)
           setMarkdown('')
           // Si ya hay texto en el momento de subir, se analiza de seguido:
           // no tiene sentido obligar a un segundo toque para el caso normal.
@@ -98,19 +124,65 @@ function SubirTicketCard({ householdId, onSubido }: { householdId: number; onSub
     <Card className="space-y-3">
       <SectionLabel>Subir ticket</SectionLabel>
 
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-fg-muted" htmlFor="ticket-foto">
-          Foto del ticket
-        </label>
+      <div className="space-y-2">
+        <p className="block text-sm font-medium text-fg-muted">Foto del ticket</p>
+
+        {previa ? (
+          <div className="relative">
+            <Thumbnail src={previa} alt="Foto elegida del ticket" className="aspect-video" />
+            <button
+              type="button"
+              onClick={() => elegirImagen(null)}
+              aria-label="Quitar foto"
+              className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-surface/90 text-fg-muted shadow-sm transition-colors hover:bg-surface hover:text-danger"
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
+
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="flex-1"
+            onClick={() => inputCamaraRef.current?.click()}
+          >
+            <Camera size={16} aria-hidden="true" />
+            Hacer foto
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="flex-1"
+            onClick={() => inputArchivoRef.current?.click()}
+          >
+            <Paperclip size={16} aria-hidden="true" />
+            Adjuntar archivo
+          </Button>
+        </div>
+        {/* Dos inputs a proposito: uno fuerza la camara (capture), el otro
+            abre el selector normal (galeria/archivos) sin restringirlo -- un
+            input compartido con capture solo deja hacer fotos nuevas. */}
         <input
-          id="ticket-foto"
+          ref={inputCamaraRef}
           type="file"
           accept="image/*"
           capture="environment"
           onChange={onFotoElegida}
-          className="block w-full text-sm text-fg-muted file:mr-3 file:h-11 file:rounded-[10px] file:border-0 file:bg-surface-2 file:px-4 file:text-sm file:font-medium file:text-fg file:transition-colors hover:file:bg-surface-3"
+          className="hidden"
+          aria-label="Hacer foto del ticket"
         />
-        {imagen ? <p className="mt-1.5 text-xs text-fg-subtle">Foto elegida: {imagen.name}</p> : null}
+        <input
+          ref={inputArchivoRef}
+          type="file"
+          accept="image/*,.heic,.heif"
+          onChange={onFotoElegida}
+          className="hidden"
+          aria-label="Adjuntar foto del ticket desde un archivo"
+        />
       </div>
 
       <div>
@@ -146,7 +218,9 @@ function SubirTicketCard({ householdId, onSubido }: { householdId: number; onSub
         <Upload size={18} aria-hidden="true" />
         {subir.isPending ? 'Subiendo...' : 'Subir ticket'}
       </Button>
-      {subir.isError ? <p className="text-sm text-danger">No se pudo subir el ticket. Inténtalo de nuevo.</p> : null}
+      {subir.isError ? (
+        <p className="text-sm text-danger">{mensajeDeError(subir.error, 'No se pudo subir el ticket.')}</p>
+      ) : null}
     </Card>
   )
 }
@@ -292,7 +366,7 @@ function DetalleTicketCargado({ ticket, onEliminado }: { ticket: Receipt; onElim
                 : 'Volver a analizar'}
           </Button>
           {analizar.isError ? (
-            <p className="text-sm text-danger">No se pudo analizar el ticket. Inténtalo de nuevo.</p>
+            <p className="text-sm text-danger">{mensajeDeError(analizar.error, 'No se pudo analizar el ticket.')}</p>
           ) : null}
         </div>
       ) : null}
@@ -302,7 +376,9 @@ function DetalleTicketCargado({ ticket, onEliminado }: { ticket: Receipt; onElim
           {confirmar.isPending ? 'Confirmando...' : 'Confirmar y añadir a la compra'}
         </Button>
       ) : null}
-      {confirmar.isError ? <p className="text-sm text-danger">No se pudo confirmar el ticket.</p> : null}
+      {confirmar.isError ? (
+        <p className="text-sm text-danger">{mensajeDeError(confirmar.error, 'No se pudo confirmar el ticket.')}</p>
+      ) : null}
 
       <ConfirmModal
         open={confirmarBorrado}

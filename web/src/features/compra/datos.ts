@@ -14,8 +14,6 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, fetchAll, type Paginated } from '../../lib/api'
-import { urlApi } from '../../lib/config'
-import { readTokens } from '../../lib/tokens'
 import { today } from '../../lib/format'
 import { costeIngredienteCentimos, eurosACentimos, repartoCompra, sumarCentimos } from './calculo'
 import type {
@@ -869,39 +867,18 @@ export function useActualizarReceta() {
 }
 
 /**
- * Sube la foto de una receta. `api.patch` de lib/api.ts siempre manda JSON:
- * para subir un fichero hace falta `multipart/form-data`, que el navegador
+ * Sube la foto de una receta. `api.patchForm` de lib/api.ts: un FormData en
+ * vez de JSON, porque hace falta `multipart/form-data`, que el navegador
  * construye solo a partir de un `FormData` (no forzar el Content-Type a
- * mano, o pierde el boundary). Mismo patron que
- * `useUploadGalleryPhoto` en features/yo/api.ts: fetch directo con la
- * cabecera Authorization sacada de readTokens(), y ApiError en el fallo
- * para que la UI lo trate igual que cualquier otro error.
+ * mano, o pierde el boundary).
  */
 export function useSubirFotoReceta() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, file }: { id: number; file: File }) => {
-      const tokens = readTokens()
       const body = new FormData()
       body.append('image', file)
-
-      const res = await fetch(urlApi(`${BASE}/recipe/${id}/`), {
-        method: 'PATCH',
-        headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : undefined,
-        body,
-      })
-
-      if (!res.ok) {
-        let parsed: unknown = null
-        try {
-          parsed = await res.json()
-        } catch {
-          /* respuesta sin cuerpo JSON */
-        }
-        throw new ApiError(res.status, parsed)
-      }
-
-      return (await res.json()) as Recipe
+      return api.patchForm<Recipe>(`${BASE}/recipe/${id}/`, body)
     },
     onSuccess: (receta) => {
       qc.invalidateQueries({ queryKey: claves.recipe(receta.id) })
@@ -1572,39 +1549,23 @@ export type NuevoTicket = { household: number; image?: File | null; markdown?: s
 
 /**
  * Sube un ticket nuevo: la foto de papel (como justificante) y/o la
- * transcripcion pegada a mano. Mismo patron que useSubirFotoReceta: fetch
- * directo con FormData en vez de api.post, porque api.post de lib/api.ts
- * siempre manda JSON y forzar el Content-Type a mano a "multipart/form-data"
- * pierde el boundary que el navegador calcula solo.
+ * transcripcion pegada a mano. Un FormData -- api.postForm en vez de
+ * api.post porque esto es multipart, no JSON -- pero por lo demas pasa por
+ * el mismo cliente que el resto de la app: hereda el refresco de token en
+ * 401/403, que un fetch a mano no tenia (y esta pantalla, por el tiempo que
+ * lleva transcribir un ticket entero, es de las que mas facil topa con un
+ * access token ya caducado -- ver docs/API-CONTRACT.md, dura 5 minutos).
  */
 export function useSubirTicket() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: NuevoTicket) => {
       if (BACKEND_LISTO) {
-        const tokens = readTokens()
         const body = new FormData()
         body.append('household', String(input.household))
         if (input.image) body.append('image', input.image)
         if (input.markdown) body.append('markdown', input.markdown)
-
-        const res = await fetch(urlApi(`${BASE}/receipt/`), {
-          method: 'POST',
-          headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : undefined,
-          body,
-        })
-
-        if (!res.ok) {
-          let parsed: unknown = null
-          try {
-            parsed = await res.json()
-          } catch {
-            /* respuesta sin cuerpo JSON */
-          }
-          throw new ApiError(res.status, parsed)
-        }
-
-        return (await res.json()) as Receipt
+        return api.postForm<Receipt>(`${BASE}/receipt/`, body)
       }
 
       const ahora = new Date().toISOString()

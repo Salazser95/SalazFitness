@@ -7,10 +7,14 @@ catalan) estan en test_tickets.py: aqui solo se comprueba el camino completo
 por la API y que confirmar no duplique nada.
 """
 
+import base64
 import datetime
+import tempfile
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from rest_framework import status
 
 from salaz.models import (
@@ -23,6 +27,13 @@ from salaz.models import (
     ShoppingListItem,
 )
 from salaz.tests.test_api import SalazApiTestCase
+
+# PNG minimo valido (1x1, transparente): para probar de verdad el camino
+# MultiPartParser + ImageField, que hasta ahora ninguna prueba tocaba (todas
+# creaban el ticket con format='json' y sin `image`).
+PNG_1X1 = base64.b64decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+)
 
 # El mismo ticket ficticio que se genera en docs/tickets-prueba/ (ver el
 # README de ahi). Se copia aqui a proposito en vez de leer el fichero: una
@@ -116,6 +127,34 @@ class TicketApiTests(SalazApiTestCase):
             '/api/v2/salaz/receipt/', {'markdown': TICKET_MERCADONA_ES}, format='json'
         )
         self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+    def test_subir_ticket_con_foto_de_verdad(self):
+        # A diferencia de _crear() (format='json', sin `image`), esto sube un
+        # fichero de verdad por multipart -- el camino que reventaba en
+        # produccion (ver ReceiptViewSet.parser_classes) y que ninguna
+        # prueba ejercitaba todavia.
+        foto = SimpleUploadedFile('ticket.png', PNG_1X1, content_type='image/png')
+        respuesta = self.client.post(
+            '/api/v2/salaz/receipt/',
+            {'household': self.household.id, 'markdown': TICKET_MERCADONA_ES, 'image': foto},
+            format='multipart',
+        )
+        self.assertEqual(respuesta.status_code, status.HTTP_201_CREATED, respuesta.data)
+        self.assertTrue(respuesta.data['image'])
+        receipt = Receipt.objects.get(pk=respuesta.data['id'])
+        self.assertTrue(receipt.image.name)
+
+    @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+    def test_subir_ticket_con_fichero_que_no_es_imagen_da_400_legible(self):
+        no_imagen = SimpleUploadedFile('ticket.txt', b'esto no es una imagen', content_type='text/plain')
+        respuesta = self.client.post(
+            '/api/v2/salaz/receipt/',
+            {'household': self.household.id, 'image': no_imagen},
+            format='multipart',
+        )
+        self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('image', respuesta.data)
 
     def test_otro_usuario_no_ve_el_ticket_ajeno(self):
         receipt_id = self._crear()

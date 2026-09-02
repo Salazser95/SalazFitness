@@ -8,7 +8,7 @@
 
 import { useMutation } from '@tanstack/react-query'
 
-import { ApiError, api } from '../../lib/api'
+import { api } from '../../lib/api'
 
 const BASE = '/api/v2/salaz/account'
 
@@ -25,25 +25,9 @@ export type RespuestaVerificacion = {
   verified?: boolean
 }
 
-/**
- * Saca un mensaje legible del cuerpo de error de DRF.
- *
- * DRF responde de dos formas distintas: `{"detail": "..."}` para los errores
- * que lanza la vista, y `{"campo": ["...", "..."]}` para los del serializer.
- * Sin esto, un usuario repetido salia en pantalla como "HTTP 400".
- */
-export function mensajeDeError(error: unknown, porDefecto: string): string {
-  if (!(error instanceof ApiError) || error.body === null || typeof error.body !== 'object') {
-    return porDefecto
-  }
-  const cuerpo = error.body as Record<string, unknown>
-  if (typeof cuerpo.detail === 'string') return cuerpo.detail
-
-  const mensajes = Object.values(cuerpo)
-    .flatMap((v) => (Array.isArray(v) ? v : [v]))
-    .filter((v): v is string => typeof v === 'string')
-  return mensajes.length > 0 ? mensajes.join(' ') : porDefecto
-}
+// mensajeDeError vive en lib/api.ts (es generico, no tiene nada de "cuenta");
+// se re-exporta aqui para no tocar los sitios que ya lo importan de aqui.
+export { mensajeDeError } from '../../lib/api'
 
 export function useRegistro() {
   return useMutation({
