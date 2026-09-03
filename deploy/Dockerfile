@@ -36,7 +36,7 @@ RUN python3 /tmp/parche.py && rm /tmp/parche.py
 
 WORKDIR /srv/wger
 RUN pip install --no-cache-dir . \
-    && pip install --no-cache-dir gunicorn mysqlclient
+    && pip install --no-cache-dir gunicorn mysqlclient anthropic
 
 # El modulo propio, encima y aparte.
 COPY backend /srv/salaz-backend

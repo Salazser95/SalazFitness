@@ -1606,6 +1606,32 @@ export function useSubirTicket() {
 }
 
 /**
+ * Transcribe la foto ya subida a `markdown`, via vision (Claude), sin
+ * analizar ni tocar compras/despensa -- eso lo sigue haciendo
+ * useAnalizarTicket() aparte. Si el servidor no tiene la clave configurada,
+ * o Claude falla, la llamada rechaza con el mensaje del backend (mismo
+ * ApiError que el resto de mutaciones): el texto se queda vacio y el
+ * usuario puede escribirlo o pegarlo a mano, como siempre.
+ */
+export function useTranscribirTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number }) => {
+      if (BACKEND_LISTO) return api.post<Receipt>(`${BASE}/receipt/${input.id}/transcribir/`)
+
+      // Sin backend real no hay vision que llamar: se deja tal cual para
+      // que la pantalla caiga al mismo mensaje de error que si faltara la
+      // clave, y el flujo manual (escribir el texto) siga siendo el camino.
+      throw new Error('La transcripción automática no está disponible en este modo.')
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: claves.receipt(ticket.id) })
+      qc.invalidateQueries({ queryKey: claves.receipts(ticket.household) })
+    },
+  })
+}
+
+/**
  * Analiza (o reanaliza) un ticket. `markdown`, si se manda, reemplaza el
  * texto guardado en la misma llamada -- es el arreglo cuando la transcripcion
  * ha leido mal una linea: se corrige el texto y se vuelve a analizar de una.

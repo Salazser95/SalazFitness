@@ -11,12 +11,14 @@ import base64
 import datetime
 import tempfile
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from rest_framework import status
 
+from salaz import tickets_vision
 from salaz.models import (
     Household,
     PantryItem,
@@ -164,6 +166,73 @@ class TicketApiTests(SalazApiTestCase):
             self.client.get(f'/api/v2/salaz/receipt/{receipt_id}/').status_code,
             status.HTTP_404_NOT_FOUND,
         )
+
+    # ------------------------------------------------------------ transcribir
+
+    def _transcribir(self, receipt_id):
+        return self.client.post(f'/api/v2/salaz/receipt/{receipt_id}/transcribir/', {}, format='json')
+
+    def test_transcribir_sin_foto_da_error_util(self):
+        receipt_id = self._crear(markdown='')
+        respuesta = self._transcribir(receipt_id)
+        self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+    def test_transcribir_sin_clave_configurada_da_error_controlado(self):
+        # Sin ANTHROPIC_API_KEY en el entorno, tickets_vision.transcribir_ticket()
+        # lanza TranscripcionNoDisponible: comprobamos que el endpoint lo
+        # convierte en un error legible, sin tocar el ticket, para que el
+        # usuario pueda seguir escribiendo el texto a mano.
+        foto = SimpleUploadedFile('ticket.png', PNG_1X1, content_type='image/png')
+        respuesta = self.client.post(
+            '/api/v2/salaz/receipt/',
+            {'household': self.household.id, 'image': foto},
+            format='multipart',
+        )
+        receipt_id = respuesta.data['id']
+
+        with patch.object(
+            tickets_vision,
+            'transcribir_ticket',
+            side_effect=tickets_vision.TranscripcionNoDisponible('No hay ANTHROPIC_API_KEY configurada en el servidor.'),
+        ):
+            respuesta = self._transcribir(receipt_id)
+
+        self.assertEqual(respuesta.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        receipt = Receipt.objects.get(pk=receipt_id)
+        self.assertEqual(receipt.markdown, '')
+
+    @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+    def test_transcribir_rellena_el_markdown_con_lo_que_devuelve_claude(self):
+        foto = SimpleUploadedFile('ticket.png', PNG_1X1, content_type='image/png')
+        respuesta = self.client.post(
+            '/api/v2/salaz/receipt/',
+            {'household': self.household.id, 'image': foto},
+            format='multipart',
+        )
+        receipt_id = respuesta.data['id']
+
+        with patch.object(tickets_vision, 'transcribir_ticket', return_value='2 LECHE 1,00 2,00'):
+            respuesta = self._transcribir(receipt_id)
+
+        self.assertEqual(respuesta.status_code, status.HTTP_200_OK, respuesta.data)
+        self.assertEqual(respuesta.data['markdown'], '2 LECHE 1,00 2,00')
+        self.assertEqual(respuesta.data['status'], Receipt.PENDIENTE)
+
+    @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+    def test_transcribir_ticket_ya_confirmado_da_error(self):
+        foto = SimpleUploadedFile('ticket.png', PNG_1X1, content_type='image/png')
+        respuesta = self.client.post(
+            '/api/v2/salaz/receipt/',
+            {'household': self.household.id, 'markdown': TICKET_MERCADONA_ES, 'image': foto},
+            format='multipart',
+        )
+        receipt_id = respuesta.data['id']
+        self._analizar(receipt_id)
+        self._confirmar(receipt_id)
+
+        respuesta = self._transcribir(receipt_id)
+        self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
 
     # --------------------------------------------------------------- analizar
 

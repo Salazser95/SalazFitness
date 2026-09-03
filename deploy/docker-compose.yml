@@ -72,6 +72,11 @@ services:
       # valido: se genera una nueva en cada arranque si no se pone.
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      # Transcripcion automatica de la foto del ticket (ver
+      # salaz/tickets_vision.py). Vacio es valido: sin clave, /transcribir/
+      # devuelve un error controlado y el usuario sigue pudiendo escribir o
+      # pegar el texto a mano.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - estaticos:/srv/salaz/static
       - subidas:/srv/salaz/media

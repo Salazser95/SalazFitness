@@ -16,6 +16,7 @@ import {
   Paperclip,
   Receipt as ReceiptIcon,
   RotateCcw,
+  ScanLine,
   Trash2,
   Upload,
   X,
@@ -32,6 +33,7 @@ import {
   useReceipt,
   useReceipts,
   useSubirTicket,
+  useTranscribirTicket,
 } from './datos'
 import type { Receipt } from './tipos'
 
@@ -209,9 +211,9 @@ function SubirTicketCard({ householdId, onSubido }: { householdId: number; onSub
       </div>
 
       <p className="text-xs text-fg-subtle">
-        De momento la transcripción de la foto se hace a mano: escribe o pega aquí el texto del ticket,
-        línea por línea, tal y como aparece impreso. La foto solo se guarda como justificante de la
-        compra.
+        Si subes una foto, el texto se transcribe solo en cuanto se suba (podrás revisarlo y corregirlo
+        antes de analizar). También puedes escribirlo o pegarlo aquí tú mismo, línea por línea, tal y
+        como aparece impreso. La foto siempre se guarda como justificante de la compra.
       </p>
 
       <Button full disabled={(!imagen && !markdown.trim()) || subir.isPending} onClick={subirTicket}>
@@ -241,11 +243,28 @@ function DetalleTicketCargado({ ticket, onEliminado }: { ticket: Receipt; onElim
   const analizar = useAnalizarTicket()
   const confirmar = useConfirmarTicket()
   const eliminar = useEliminarTicket()
+  const transcribir = useTranscribirTicket()
   const [markdown, setMarkdown] = useState(ticket.markdown)
   const [confirmarBorrado, setConfirmarBorrado] = useState(false)
 
   const lineas = ticket.parsed.lines ?? []
   const avisos = ticket.parsed.warnings ?? []
+
+  // Un solo intento automatico por ticket recien subido: si llega con foto y
+  // sin texto todavia, se transcribe sola. Un solo disparo aunque React monte
+  // el efecto dos veces en modo estricto -- transcribir llama a Claude y
+  // cuesta dinero de verdad, no es gratis reintentarlo solo. Este componente
+  // se remonta con `key={ticket.updated_at}` (ver DetalleTicket mas abajo),
+  // asi que cada intento de verdad nuevo (foto distinta, ticket distinto)
+  // ya llega con un ref limpio sin necesidad de resincronizarlo a mano.
+  const disparadoRef = useRef(false)
+  useEffect(() => {
+    if (disparadoRef.current) return
+    if (ticket.status !== 'pendiente' || !ticket.image || ticket.markdown.trim()) return
+    disparadoRef.current = true
+    transcribir.mutate({ id: ticket.id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function onEliminarConfirmado() {
     eliminar.mutate({ id: ticket.id, household: ticket.household }, { onSuccess: onEliminado })
@@ -269,6 +288,27 @@ function DetalleTicketCargado({ ticket, onEliminado }: { ticket: Receipt; onElim
       </div>
 
       {ticket.image ? <Thumbnail src={ticket.image} alt="Foto del ticket" className="aspect-video" /> : null}
+
+      {transcribir.isPending ? (
+        <p className="flex items-center gap-2 rounded-[14px] border border-accent/30 bg-accent/10 p-3 text-sm text-accent">
+          <ScanLine size={16} className="shrink-0 animate-pulse" aria-hidden="true" />
+          Transcribiendo el ticket...
+        </p>
+      ) : null}
+
+      {transcribir.isError ? (
+        <div className="space-y-2 rounded-[14px] border border-warning/30 bg-warning/10 p-3">
+          <p className="flex items-start gap-2 text-sm text-warning">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+            {mensajeDeError(transcribir.error, 'No se pudo transcribir la foto automáticamente.')} Puedes
+            escribir o pegar el texto abajo, o volver a intentarlo.
+          </p>
+          <Button variant="ghost" size="sm" onClick={() => transcribir.mutate({ id: ticket.id })}>
+            <ScanLine size={16} aria-hidden="true" />
+            Reintentar transcripción automática
+          </Button>
+        </div>
+      ) : null}
 
       {/* Paso 3: confirmado -- ya no hay nada que revisar, solo el enlace a lo que se creo. */}
       {ticket.status === 'confirmado' ? (

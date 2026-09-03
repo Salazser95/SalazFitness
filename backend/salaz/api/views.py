@@ -16,7 +16,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from salaz import frescura, tickets
+from salaz import frescura, tickets, tickets_vision
 from salaz.api.serializers import (
     DeviceStateSerializer,
     FavoriteIngredientSerializer,
@@ -540,14 +540,14 @@ class ReceiptViewSet(viewsets.ModelViewSet):
     Tickets de la compra subidos como foto. Ver la nota larga en
     salaz/models/receipt.py sobre el camino foto -> texto -> datos.
 
-    Sobre la transcripcion automatica de la foto: hoy NO se hace aqui. El
-    entorno no trae OCR (tesseract) ni una clave de API de vision, asi que
-    el endpoint acepta el texto ya transcrito en `markdown` -- pegado o
-    corregido a mano por el usuario. El resto de la cadena (analizar el
-    texto, revisar, confirmar, volcar a compras y despensa) no depende de
-    como se haya obtenido ese texto, asi que enchufar mas adelante un
-    proveedor de vision u OCR es rellenar `markdown` antes de llamar a
-    /analizar/, sin tocar nada de lo de aqui abajo.
+    Sobre la transcripcion automatica de la foto: la hace /transcribir/, que
+    manda la imagen ya subida a la API de vision de Claude (ver
+    salaz/tickets_vision.py) y rellena `markdown` con el resultado, sin
+    analizar ni tocar compras/despensa. El resto de la cadena (analizar el
+    texto, revisar, confirmar) no depende de como se haya obtenido ese
+    texto: si /transcribir/ falla (sin foto, sin clave configurada, error de
+    Claude) el ticket se queda tal cual, y el usuario siempre puede escribir
+    o corregir el texto a mano y analizar igualmente.
     """
 
     serializer_class = ReceiptSerializer
@@ -568,6 +568,47 @@ class ReceiptViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
         _accesible_o_404(Household.objects.all(), household_id, request.user)
         return super().create(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'])
+    def transcribir(self, request, pk=None):
+        """
+        Transcribe la foto ya subida a `markdown`, via Claude (vision).
+
+        No analiza ni toca compras/despensa (eso sigue siendo /analizar/ y
+        /confirmar/): solo rellena el texto para que el usuario lo revise, y
+        si hace falta lo corrija, antes de analizarlo -- igual que si lo
+        hubiera pegado a mano. Si falla (sin foto, sin clave configurada,
+        error de Claude) no se toca el ticket: el camino manual sigue
+        intacto.
+        """
+        receipt = self.get_object()
+        if receipt.status == Receipt.CONFIRMADO:
+            return Response(
+                {'detail': 'Este ticket ya está confirmado.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not receipt.image:
+            return Response(
+                {'detail': 'Este ticket no tiene foto que transcribir.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        receipt.image.open('rb')
+        try:
+            imagen_bytes = receipt.image.read()
+        finally:
+            receipt.image.close()
+
+        try:
+            texto = tickets_vision.transcribir_ticket(imagen_bytes, receipt.image.name)
+        except tickets_vision.TranscripcionNoDisponible as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except tickets_vision.TranscripcionFallida as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        receipt.markdown = texto
+        receipt.save(update_fields=['markdown', 'updated_at'])
+        return Response(self.get_serializer(receipt).data)
 
     @action(detail=True, methods=['post'])
     def analizar(self, request, pk=None):
