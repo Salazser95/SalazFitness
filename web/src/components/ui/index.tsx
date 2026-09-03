@@ -446,16 +446,27 @@ function useBloqueoDeScroll(activo: boolean) {
  * de referencia para `position: fixed`, y el modal dejaria de posicionarse
  * contra la ventana de verdad. El portal lo evita de raiz.
  */
-function Superposicion({
+/**
+ * `abajo` es para hojas que suben desde el borde inferior (ver HojaAlimento
+ * en BuscarPage.tsx): sin el relleno de `superposicion-modal` (que separa
+ * de los cuatro bordes, pensado para un dialogo centrado) y con la propia
+ * hoja pegada abajo del todo, pero conservando el resto de la pila: portal,
+ * bloqueo de scroll y foco/Escape, que es lo que de verdad evita que un
+ * antepasado con `transform`/`filter` (o el scroll del fondo) descoloque la
+ * hoja mientras esta abierta.
+ */
+export function Superposicion({
   abierto,
   onClose,
   etiqueta,
   children,
+  alineacion = 'centro',
 }: {
   abierto: boolean
   onClose: () => void
   etiqueta?: string
   children: ReactNode
+  alineacion?: 'centro' | 'abajo'
 }) {
   const contenedorRef = useRef<HTMLDivElement>(null)
   useComportamientoModal(abierto, onClose, contenedorRef)
@@ -463,13 +474,16 @@ function Superposicion({
 
   if (!abierto) return null
 
+  const claseAlineacion =
+    alineacion === 'abajo' ? 'superposicion-abajo items-end' : 'superposicion-modal items-center'
+
   return createPortal(
     <div
       // z-[100]: por encima de la barra de navegacion inferior fija de
       // App.tsx (z-50). Sin esto, en iOS un modal que ya cayera detras de
       // esa barra por el problema del viewport ademas quedaria por debajo
       // suyo en la pila: doble motivo para no verse.
-      className="superposicion-modal fixed inset-0 z-[100] flex items-center justify-center bg-black/70"
+      className={`fixed inset-0 z-[100] flex justify-center bg-black/70 ${claseAlineacion}`}
       role="dialog"
       aria-modal="true"
       aria-label={etiqueta}

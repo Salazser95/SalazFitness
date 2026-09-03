@@ -154,6 +154,15 @@ input, textarea, select {
     max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
 }
 
+/* Misma altura de verdad que superposicion-modal, pero sin el relleno de
+   los cuatro lados: para una hoja que sube pegada al borde inferior (ver
+   Superposicion con alineacion="abajo"), que ya gestiona su propio
+   pb-safe. */
+@utility superposicion-abajo {
+  height: 100vh;
+  height: 100dvh;
+}
+
 /* ------------------------------------------------------------ animaciones */
 
 @keyframes salaz-rise {

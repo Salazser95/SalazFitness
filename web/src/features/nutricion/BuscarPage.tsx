@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChefHat, Clock, ScanBarcode, Search, Star, X } from 'lucide-react'
+import { ChefHat, Clock, ScanBarcode, Search, Star, Trash2, X } from 'lucide-react'
 
-import { Button, Card, EmptyState, ErrorState, Field, SkeletonList } from '../../components/ui'
+import { Button, Card, EmptyState, ErrorState, Field, SkeletonList, Superposicion, UndoBar } from '../../components/ui'
+import { useUndoStack } from '../../lib/undo'
 import { AnotarRecetaModal } from '../compra/componentes/AnotarRecetaModal'
 import { useHousehold, useRecipes } from '../compra/datos'
 import type { Recipe } from '../compra/tipos'
@@ -21,6 +22,7 @@ import {
   alternarFavorito,
   leerFavoritos,
   leerRecientes,
+  quitarReciente,
   registrarReciente,
 } from './local'
 import type { AlimentoGuardado } from './local'
@@ -139,18 +141,21 @@ function ListaAlimentos({
   alimentos,
   favoritosIds,
   onElegir,
+  onQuitar,
 }: {
   alimentos: Alimento[]
   favoritosIds: Set<number>
   onElegir: (a: Alimento) => void
+  /** Solo en Favoritos/Recientes: quitar de la lista, directo y sin confirmar. */
+  onQuitar?: (a: Alimento) => void
 }) {
   return (
     <ul className="space-y-2">
       {alimentos.map((a) => (
-        <li key={a.id}>
+        <li key={a.id} className="flex items-center gap-2">
           <button
             type="button"
-            className="flex w-full items-center justify-between gap-3 rounded-[14px] border border-border bg-surface-2 px-4 py-3 text-left transition-colors duration-150 hover:bg-surface-3"
+            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-[14px] border border-border bg-surface-2 px-4 py-3 text-left transition-colors duration-150 hover:bg-surface-3"
             onClick={() => onElegir(a)}
           >
             <span className="min-w-0">
@@ -163,6 +168,16 @@ function ListaAlimentos({
               <Star size={16} className="shrink-0 text-primary" fill="currentColor" aria-hidden="true" />
             ) : null}
           </button>
+          {onQuitar ? (
+            <button
+              type="button"
+              onClick={() => onQuitar(a)}
+              aria-label={`Quitar ${a.name}`}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] text-fg-subtle transition-colors duration-150 hover:bg-danger/10 hover:text-danger"
+            >
+              <Trash2 size={16} aria-hidden="true" />
+            </button>
+          ) : null}
         </li>
       ))}
     </ul>
@@ -199,16 +214,10 @@ function HojaAlimento({
   const macros = macrosFor(alimento, gramos)
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/60"
-        aria-label="Cerrar"
-        onClick={onCerrar}
-      />
+    <Superposicion abierto onClose={onCerrar} etiqueta={alimento.name} alineacion="abajo">
       <Card
         as="section"
-        className="glass animate-rise relative z-10 w-full max-w-lg rounded-b-none border-b-0 pb-safe"
+        className="glass animate-rise w-full max-w-lg rounded-b-none border-b-0 pb-safe"
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -298,7 +307,7 @@ function HojaAlimento({
           {anadiendo ? 'Añadiendo...' : 'Añadir al diario'}
         </Button>
       </Card>
-    </div>
+    </Superposicion>
   )
 }
 
@@ -326,6 +335,7 @@ export default function BuscarPage() {
 
   const [favoritos, setFavoritos] = useState<AlimentoGuardado[]>(() => leerFavoritos())
   const [recientes, setRecientes] = useState<AlimentoGuardado[]>(() => leerRecientes())
+  const deshacer = useUndoStack()
 
   // Debounce de 350 ms: la base tiene 177.302 alimentos, no se puede buscar en cada tecla.
   useEffect(() => {
@@ -372,6 +382,28 @@ export default function BuscarPage() {
   function alternarFav() {
     if (!seleccionado) return
     setFavoritos(alternarFavorito(seleccionado))
+  }
+
+  // Sin confirmar: se quita directo, y se puede deshacer justo despues (ver
+  // Historial/Despensa, mismo patron).
+  function quitarFav(a: Alimento) {
+    setFavoritos(alternarFavorito(a))
+    deshacer.registrar({
+      etiqueta: `${a.name} quitado de favoritos`,
+      restaurar: async () => {
+        setFavoritos(alternarFavorito(a))
+      },
+    })
+  }
+
+  function quitarRec(a: Alimento) {
+    setRecientes(quitarReciente(a.id))
+    deshacer.registrar({
+      etiqueta: `${a.name} quitado de recientes`,
+      restaurar: async () => {
+        setRecientes(registrarReciente(a))
+      },
+    })
   }
 
   function confirmarAnadir() {
@@ -475,7 +507,12 @@ export default function BuscarPage() {
             description="Lo que registres en el diario aparecerá aquí para añadirlo más rápido la próxima vez."
           />
         ) : (
-          <ListaAlimentos alimentos={recientes} favoritosIds={favoritosIds} onElegir={abrirSheet} />
+          <ListaAlimentos
+            alimentos={recientes}
+            favoritosIds={favoritosIds}
+            onElegir={abrirSheet}
+            onQuitar={quitarRec}
+          />
         )
       ) : favoritos.length === 0 ? (
         <EmptyState
@@ -484,7 +521,12 @@ export default function BuscarPage() {
           description="Marca alimentos con la estrella para tenerlos siempre a mano."
         />
       ) : (
-        <ListaAlimentos alimentos={favoritos} favoritosIds={favoritosIds} onElegir={abrirSheet} />
+        <ListaAlimentos
+          alimentos={favoritos}
+          favoritosIds={favoritosIds}
+          onElegir={abrirSheet}
+          onQuitar={quitarFav}
+        />
       )}
 
       {seleccionado ? (
@@ -519,6 +561,13 @@ export default function BuscarPage() {
           }}
         />
       ) : null}
+
+      <UndoBar
+        visible={deshacer.pendientes > 0}
+        etiqueta={deshacer.error ?? deshacer.etiquetaUltima}
+        onDeshacer={() => void deshacer.deshacer()}
+        deshaciendo={deshacer.deshaciendo}
+      />
     </div>
   )
 }

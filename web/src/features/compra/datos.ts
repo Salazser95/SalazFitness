@@ -809,7 +809,17 @@ function inicioDeSemana(iso: string): string {
 // ================================================================
 
 async function cargarRecetas(householdId: number): Promise<Recipe[]> {
-  if (BACKEND_LISTO) return fetchAll<Recipe>(`${BASE}/recipe/?household=${householdId}`)
+  if (BACKEND_LISTO) {
+    // `ordering=name` para que la paginacion (LIMIT/OFFSET sin ORDER BY
+    // estable) no repita ni salte filas entre paginas -- sin un orden fijo,
+    // MySQL no garantiza que la pagina 2 empiece justo donde acabo la 1.
+    const paginas = await fetchAll<Recipe>(`${BASE}/recipe/?household=${householdId}&ordering=name`)
+    // Defensa extra: si aun asi llega algun id repetido (dos household
+    // solapados, una recarga a mitad de escritura...), no se ve duplicado
+    // en la lista.
+    const vistos = new Set<number>()
+    return paginas.filter((r) => (vistos.has(r.id) ? false : (vistos.add(r.id), true)))
+  }
   return retraso(almacen.recipes.filter((r) => r.household === householdId))
 }
 

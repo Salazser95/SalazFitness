@@ -13,7 +13,6 @@ import {
 } from '../../components/ui'
 import { DayNavigator } from '../../components/DayNavigator'
 import { addDays, int, num, shortDate, today } from '../../lib/format'
-import { useSwipe } from '../../lib/useSwipe'
 import { useWorkoutSessions } from '../entreno/api'
 import { AntesDeEmpezar } from '../entreno/components/AntesDeEmpezar'
 import { useEstadoDelDia } from '../entreno/estadoDelDia'
@@ -29,14 +28,14 @@ export default function HoyPage() {
   const estado = useEstadoDelDia(fecha)
 
   // Ventana de 5 dias independiente del dia seleccionado arriba: por defecto
-  // anclada a hoy, y se desliza de 5 en 5 (derecha = siguientes, izquierda =
-  // anteriores), con las flechas como alternativa siempre disponible.
+  // anclada a hoy, y se avanza/retrocede de 5 en 5 con las flechas. La tira
+  // en si se desliza con el dedo de forma nativa (overflow-x-auto), igual
+  // que las pestanas de Compra -- sin gesto propio encima.
   const [anclaProximos, setAnclaProximos] = useState(hoyReal)
   const proximosDias = useMemo(
     () => (estado.secuencia ?? []).filter((d) => d.date > anclaProximos).slice(0, 5),
     [estado.secuencia, anclaProximos],
   )
-  const swipeProximos = useSwipe((direccion) => setAnclaProximos((a) => addDays(a, direccion * 5)))
 
   // ---- Estadisticas: siempre del dia real, aunque se este mirando otra fecha ----
   const pesoQ = useWeightEntries()
@@ -135,12 +134,7 @@ export default function HoyPage() {
               </button>
             </div>
           </div>
-          <div
-            key={anclaProximos}
-            {...swipeProximos.handlers}
-            style={swipeProximos.estiloArrastre}
-            className="animate-rise flex touch-pan-y gap-3 overflow-x-auto pb-1"
-          >
+          <div key={anclaProximos} className="animate-rise flex gap-3 overflow-x-auto pb-1">
             {proximosDias.length === 0 ? (
               <p className="px-1 py-2 text-sm text-fg-subtle">No hay días en este rango.</p>
             ) : null}

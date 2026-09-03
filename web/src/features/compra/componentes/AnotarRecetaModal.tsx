@@ -12,6 +12,7 @@
  */
 
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { Button, Field, Modal } from '../../../components/ui'
 import { today } from '../../../lib/format'
@@ -39,6 +40,7 @@ export function AnotarRecetaModal({
   /** Comida preseleccionada (p.ej. la que se estaba editando al abrir el buscador). */
   mealIdInicial?: string
 }) {
+  const navigate = useNavigate()
   const receta = useRecipe(recipeId)
   const ingredientes = useRecipeIngredients(recipeId)
   const plan = usePlan()
@@ -61,6 +63,11 @@ export function AnotarRecetaModal({
     setHecho(false)
     anotar.reset()
     onClose()
+  }
+
+  function irADetalle() {
+    cerrar()
+    navigate(`/compra/recetas/${recipeId}`)
   }
 
   if (!open) return null
@@ -149,6 +156,10 @@ export function AnotarRecetaModal({
 
           <Button full onClick={onConfirmar} disabled={anotar.isPending || !mealId || lista.length === 0}>
             {anotar.isPending ? 'Anotando...' : 'Anotar en el diario'}
+          </Button>
+
+          <Button full variant="ghost" size="sm" onClick={irADetalle}>
+            Editar o eliminar esta receta
           </Button>
         </div>
       )}

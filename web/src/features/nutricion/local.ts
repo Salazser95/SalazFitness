@@ -188,3 +188,10 @@ export function registrarReciente(ing: AlimentoGuardado): AlimentoGuardado[] {
   localStorage.setItem(RECIENTES_KEY, JSON.stringify(siguiente))
   return siguiente
 }
+
+/** Quita un alimento de recientes a mano (sin esperar a que lo desplacen otros 30). */
+export function quitarReciente(id: number): AlimentoGuardado[] {
+  const siguiente = leerRecientes().filter((a) => a.id !== id)
+  localStorage.setItem(RECIENTES_KEY, JSON.stringify(siguiente))
+  return siguiente
+}
