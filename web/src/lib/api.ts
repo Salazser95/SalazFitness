@@ -36,7 +36,9 @@ function notifySessionExpired(): void {
 // Una sola peticion de refresco en vuelo, aunque fallen diez llamadas a la vez.
 let refreshInFlight: Promise<string | null> | null = null
 
-async function refreshAccessToken(): Promise<string | null> {
+// Exportada para que lib/tiempoReal.ts pueda usarla tal cual al recibir un
+// 401 del endpoint de eventos: mismo mecanismo de refresco, sin duplicarlo.
+export async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight
 
   refreshInFlight = (async () => {
@@ -82,18 +84,21 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, headers, _retried, ...rest } = options
   const tokens = readTokens()
+  // FormData (subida de fichero): el navegador tiene que poner su propio
+  // Content-Type con el boundary, y el cuerpo va tal cual, sin JSON.stringify.
+  const esFormData = body instanceof FormData
 
   const finalHeaders: Record<string, string> = {
     Accept: 'application/json',
     ...(headers as Record<string, string> | undefined),
   }
-  if (body !== undefined) finalHeaders['Content-Type'] = 'application/json'
+  if (body !== undefined && !esFormData) finalHeaders['Content-Type'] = 'application/json'
   if (tokens) finalHeaders.Authorization = `Bearer ${tokens.access}`
 
   const res = await fetch(urlApi(path), {
     ...rest,
     headers: finalHeaders,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : esFormData ? (body as FormData) : JSON.stringify(body),
   })
 
   // 401/403 con token presente: probablemente el access ha caducado.
@@ -103,7 +108,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       return request<T>(path, { ...options, _retried: true })
     }
     notifySessionExpired()
-    throw new ApiError(res.status, null, 'Sesion caducada')
+    throw new ApiError(res.status, null, 'Sesión caducada')
   }
 
   if (!res.ok) {
@@ -126,6 +131,38 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  // Subida de fichero (foto de ticket, de receta, de progreso): un FormData,
+  // nunca JSON. Nombre propio a proposito, para que se vea en el sitio de
+  // llamada que esto va multipart y no como los de arriba.
+  postForm: <T>(path: string, body: FormData) => request<T>(path, { method: 'POST', body }),
+  patchForm: <T>(path: string, body: FormData) => request<T>(path, { method: 'PATCH', body }),
+}
+
+/**
+ * Saca un mensaje legible del cuerpo de error de DRF.
+ *
+ * DRF responde de dos formas distintas: `{"detail": "..."}` para los errores
+ * que lanza la vista, y `{"campo": ["...", "..."]}` para los del serializer.
+ * Sin esto, un usuario repetido salia en pantalla como "HTTP 400".
+ *
+ * Si el cuerpo no es JSON aprovechable (un 413 de nginx, un 502, un 500 con
+ * pagina de error), se aniade el codigo HTTP al mensaje por defecto -- sin
+ * esto, un 401 y un 413 se ven en pantalla exactamente igual, y diagnosticar
+ * cual de los dos fue de verdad exige pedirle al usuario que abra las
+ * herramientas de desarrollo del navegador.
+ */
+export function mensajeDeError(error: unknown, porDefecto: string): string {
+  if (!(error instanceof ApiError)) return porDefecto
+  if (error.body === null || typeof error.body !== 'object') {
+    return `${porDefecto} (HTTP ${error.status})`
+  }
+  const cuerpo = error.body as Record<string, unknown>
+  if (typeof cuerpo.detail === 'string') return cuerpo.detail
+
+  const mensajes = Object.values(cuerpo)
+    .flatMap((v) => (Array.isArray(v) ? v : [v]))
+    .filter((v): v is string => typeof v === 'string')
+  return mensajes.length > 0 ? mensajes.join(' ') : `${porDefecto} (HTTP ${error.status})`
 }
 
 // ---------------------------------------------------------------- paginacion
@@ -171,7 +208,7 @@ export async function login(username: string, password: string): Promise<LoginRe
   })
 
   if (!res.ok) {
-    let detail = 'Usuario o contrasena incorrectos'
+    let detail = 'Usuario o contraseña incorrectos'
     try {
       const j = (await res.json()) as { errors?: { message?: string }[] }
       if (j.errors?.[0]?.message) detail = j.errors[0].message

@@ -154,7 +154,7 @@ export default function PlanificarPage() {
     return (
       <EmptyState
         icon={ChefHat}
-        title="Sin recetas todavia"
+        title="Sin recetas todavía"
         description="Crea alguna receta primero: el planificador reparte sus ingredientes en la lista de la compra."
       />
     )
@@ -163,12 +163,12 @@ export default function PlanificarPage() {
   return (
     <div className="animate-rise space-y-5">
       <div>
-        <SectionLabel>Rango de dias</SectionLabel>
+        <SectionLabel>Rango de días</SectionLabel>
         <Card className="space-y-3">
           <div className="grid grid-cols-3 gap-2">
             {DIAS_PRESET.map((dias) => (
               <Button key={dias} type="button" variant="secondary" size="sm" onClick={() => elegirRango(dias)}>
-                {dias} dias
+                {dias} días
               </Button>
             ))}
           </div>
@@ -219,7 +219,7 @@ export default function PlanificarPage() {
                     <span className="tnum w-6 text-center text-sm text-fg">{tandasPorReceta[r.id]}</span>
                     <button
                       type="button"
-                      aria-label={`Anadir una tanda de ${r.name}`}
+                      aria-label={`Añadir una tanda de ${r.name}`}
                       onClick={() => cambiarTandas(r.id, 1)}
                       className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-surface-3 text-fg-muted hover:text-fg"
                     >
@@ -236,7 +236,7 @@ export default function PlanificarPage() {
 
       {seleccionadas.length > 0 ? (
         <div>
-          <SectionLabel>Que se come cada dia (opcional)</SectionLabel>
+          <SectionLabel>Qué se come cada día (opcional)</SectionLabel>
           <Card className="space-y-2">
             {fechas.map((fecha) => (
               <div key={fecha} className="flex items-center justify-between gap-3">
@@ -258,13 +258,13 @@ export default function PlanificarPage() {
             ))}
           </Card>
           <p className="mt-2 text-xs text-fg-subtle">
-            Se guarda en este dispositivo. En el Diario de nutricion, el dia que tenga receta asignada mostrara un
-            boton directo para anotarla.
+            Se guarda en este dispositivo. En el Diario de nutrición, el día que tenga receta asignada mostrará un
+            botón directo para anotarla.
           </p>
         </div>
       ) : null}
 
-      {generar.isError ? <p className="text-sm text-danger">No se pudo generar la lista. Intentalo de nuevo.</p> : null}
+      {generar.isError ? <p className="text-sm text-danger">No se pudo generar la lista. Inténtalo de nuevo.</p> : null}
 
       <Button full size="lg" onClick={onGenerar} disabled={seleccionadas.length === 0 || generar.isPending}>
         <ClipboardList size={18} aria-hidden="true" />

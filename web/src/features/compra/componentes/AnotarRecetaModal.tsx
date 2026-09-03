@@ -12,18 +12,17 @@
  */
 
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { Button, Field, Modal } from '../../../components/ui'
 import { today } from '../../../lib/format'
 import {
-  MEAL_NAMES,
-  mapaComidas,
+  comidasOrdenadas,
   useAnotarRecetaEnDiario,
   useAsegurarComidas,
   usePlan,
   usePlanInfo,
 } from '../../nutricion/api'
-import type { MealName } from '../../nutricion/api'
 import { useRecipe, useRecipeIngredients } from '../datos'
 
 export function AnotarRecetaModal({
@@ -31,13 +30,17 @@ export function AnotarRecetaModal({
   open,
   onClose,
   fecha = today(),
+  mealIdInicial,
 }: {
   recipeId: number
   open: boolean
   onClose: () => void
   /** Fecha del diario en la que se anota (YYYY-MM-DD). Por defecto, hoy. */
   fecha?: string
+  /** Comida preseleccionada (p.ej. la que se estaba editando al abrir el buscador). */
+  mealIdInicial?: string
 }) {
+  const navigate = useNavigate()
   const receta = useRecipe(recipeId)
   const ingredientes = useRecipeIngredients(recipeId)
   const plan = usePlan()
@@ -45,7 +48,14 @@ export function AnotarRecetaModal({
   useAsegurarComidas(planInfo.data)
   const anotar = useAnotarRecetaEnDiario(plan.data?.id, fecha)
 
-  const [comida, setComida] = useState<MealName>('Comida')
+  const comidas = comidasOrdenadas(planInfo.data)
+  // Solo se guarda la eleccion EXPLICITA del usuario (pulsar un boton
+  // distinto): el resto de veces la comida efectiva se deriva en cada
+  // render, igual que el selector de comida de BuscarPage.tsx. Evita un
+  // efecto que "sincronice" el id preseleccionado con las comidas del plan
+  // en cuanto llegan, que aqui no hacia falta.
+  const [mealIdManual, setMealIdManual] = useState<string | null>(null)
+  const mealId = mealIdManual ?? mealIdInicial ?? comidas[0]?.id ?? null
   const [raciones, setRaciones] = useState(1)
   const [hecho, setHecho] = useState(false)
 
@@ -55,10 +65,14 @@ export function AnotarRecetaModal({
     onClose()
   }
 
+  function irADetalle() {
+    cerrar()
+    navigate(`/compra/recetas/${recipeId}`)
+  }
+
   if (!open) return null
 
-  const comidas = mapaComidas(planInfo.data)
-  const mealId = comidas.get(comida)?.id
+  const comidaElegida = comidas.find((m) => m.id === mealId)
   const lista = ingredientes.data ?? []
   const servings = receta.data?.servings || 1
   const cargando = plan.isLoading || (!!plan.data && (planInfo.isLoading || receta.isLoading || ingredientes.isLoading))
@@ -79,7 +93,7 @@ export function AnotarRecetaModal({
       ) : !plan.data ? (
         <div className="space-y-4">
           <p className="text-sm text-fg-muted">
-            Todavia no tienes un plan nutricional. Crea uno primero en Nutricion &gt; Diario.
+            Todavía no tienes un plan nutricional. Crea uno primero en Nutrición &gt; Diario.
           </p>
           <Button full variant="secondary" onClick={cerrar}>
             Cerrar
@@ -89,7 +103,7 @@ export function AnotarRecetaModal({
         <div className="space-y-4">
           <p className="text-sm text-fg">
             Anotados {lista.length} {lista.length === 1 ? 'alimento' : 'alimentos'} de &quot;{receta.data?.name}&quot;
-            en {comida}.
+            en {comidaElegida?.name ?? 'la comida elegida'}.
           </p>
           <Button full onClick={cerrar}>
             Cerrar
@@ -103,23 +117,27 @@ export function AnotarRecetaModal({
 
           <div>
             <p className="mb-1.5 text-sm font-medium text-fg-muted">Comida</p>
-            <div className="grid grid-cols-2 gap-2">
-              {MEAL_NAMES.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  aria-pressed={comida === n}
-                  onClick={() => setComida(n)}
-                  className={`rounded-[14px] border px-3 py-2.5 text-sm transition-colors duration-150 ${
-                    comida === n
-                      ? 'border-primary bg-primary/10 text-fg'
-                      : 'border-border bg-surface-2 text-fg-muted hover:text-fg'
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
+            {comidas.length === 0 ? (
+              <p className="text-sm text-fg-subtle">Este plan todavía no tiene comidas.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {comidas.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    aria-pressed={mealId === m.id}
+                    onClick={() => setMealIdManual(m.id)}
+                    className={`rounded-[14px] border px-3 py-2.5 text-sm transition-colors duration-150 ${
+                      mealId === m.id
+                        ? 'border-primary bg-primary/10 text-fg'
+                        : 'border-border bg-surface-2 text-fg-muted hover:text-fg'
+                    }`}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <Field
@@ -132,12 +150,16 @@ export function AnotarRecetaModal({
           />
 
           {lista.length === 0 ? (
-            <p className="text-sm text-danger">Esta receta no tiene ingredientes todavia.</p>
+            <p className="text-sm text-danger">Esta receta no tiene ingredientes todavía.</p>
           ) : null}
-          {anotar.isError ? <p className="text-sm text-danger">No se pudo anotar. Intentalo de nuevo.</p> : null}
+          {anotar.isError ? <p className="text-sm text-danger">No se pudo anotar. Inténtalo de nuevo.</p> : null}
 
           <Button full onClick={onConfirmar} disabled={anotar.isPending || !mealId || lista.length === 0}>
             {anotar.isPending ? 'Anotando...' : 'Anotar en el diario'}
+          </Button>
+
+          <Button full variant="ghost" size="sm" onClick={irADetalle}>
+            Editar o eliminar esta receta
           </Button>
         </div>
       )}

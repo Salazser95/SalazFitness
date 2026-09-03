@@ -142,7 +142,7 @@ docker compose --env-file .env up -d --build
 ## Privacidad
 
 Los datos de entrenamiento, peso, comidas y compras se quedan en la base de
-datos de tu servidor. No hay telemetría, ni analítica, ni cuentas de terceros, ni IA. Las
+datos de tu servidor. No hay telemetría, ni analítica, ni cuentas de terceros. Las
 únicas peticiones que salen son a `wger.de` y Open Food Facts para **descargar**
 catálogos de ejercicios y alimentos.
 

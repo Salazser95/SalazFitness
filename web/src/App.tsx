@@ -14,6 +14,7 @@ import {
 import { SESSION_EXPIRED } from './lib/api'
 import { useAuth } from './lib/auth'
 import { Button, Field, SkeletonList } from './components/ui'
+import { Footer } from './components/Footer'
 
 const Hoy = lazy(() => import('./features/hoy/HoyPage'))
 const Entreno = lazy(() => import('./features/entreno/EntrenoPage'))
@@ -23,6 +24,8 @@ const Yo = lazy(() => import('./features/yo/YoPage'))
 // Publicas: se abren sin sesion, porque quien se registra todavia no tiene.
 const Registro = lazy(() => import('./features/cuenta/RegistroPage'))
 const Verificar = lazy(() => import('./features/cuenta/VerificarPage'))
+// Tambien publica: hay que poder leer las condiciones antes de crear cuenta.
+const Legal = lazy(() => import('./features/legal/LegalPage'))
 
 // Cinco destinos como máximo en la barra inferior. Ver docs/DESIGN-SYSTEM.md.
 // labelKey es la clave de i18n (ver src/i18n/es-ES.json), resuelta en NavItem
@@ -87,6 +90,8 @@ function LoginPage() {
         </p>
 
         <p className="mt-4 text-center text-xs text-fg-subtle">{t('login.privacidad')}</p>
+
+        <Footer />
       </div>
     </main>
   )
@@ -133,8 +138,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-dvh lg:flex">
-      {/* Barra lateral, solo en escritorio */}
-      <aside className="hidden w-60 shrink-0 border-r border-border bg-surface/40 p-4 lg:flex lg:flex-col">
+      {/* Barra lateral, solo en escritorio. Fija con sticky: al deslizar el
+          contenido central, la barra se queda quieta en su sitio en vez de
+          desplazarse con el resto de la pagina (en movil no aplica, ver la
+          barra inferior mas abajo, que no se toca). */}
+      <aside className="hidden w-60 shrink-0 border-r border-border bg-surface/40 p-4 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col">
         <div className="px-2 py-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
             Salaz
@@ -159,7 +167,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-28 pt-6 lg:pb-10">
+        <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-28 pt-safe lg:pb-10 lg:pt-6">
           <Suspense fallback={<SkeletonList rows={4} height="h-24" />}>{children}</Suspense>
         </main>
       </div>
@@ -195,6 +203,15 @@ export default function App() {
         <Routes>
           <Route path="/registro" element={<Registro />} />
           <Route path="/verificar" element={<Verificar />} />
+          {/* Sin AppShell todavia, asi que aqui hay que poner el margen a mano. */}
+          <Route
+            path="/legal"
+            element={
+              <main className="mx-auto w-full max-w-3xl px-4 py-8">
+                <Legal />
+              </main>
+            }
+          />
           <Route path="*" element={<LoginPage />} />
         </Routes>
       </Suspense>
@@ -211,6 +228,7 @@ export default function App() {
         <Route path="/compra/*" element={<Compra />} />
         <Route path="/yo" element={<Yo />} />
         <Route path="/verificar" element={<Verificar />} />
+        <Route path="/legal" element={<Legal />} />
         <Route path="*" element={<Navigate to="/hoy" replace />} />
       </Routes>
     </AppShell>

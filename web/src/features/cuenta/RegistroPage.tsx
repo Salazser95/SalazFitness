@@ -12,6 +12,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { MailCheck } from 'lucide-react'
 
 import { Button, Field } from '../../components/ui'
+import { Footer } from '../../components/Footer'
 import { mensajeDeError, useRegistro } from './api'
 
 export default function RegistroPage() {
@@ -40,7 +41,7 @@ export default function RegistroPage() {
           </span>
           <h1 className="mt-4 font-display text-3xl">Revisa tu correo</h1>
           <p className="mt-3 text-sm text-fg-muted">
-            Hemos enviado un enlace a <span className="text-fg">{correo}</span>. Pincha en el para
+            Hemos enviado un enlace a <span className="text-fg">{correo}</span>. Pincha en él para
             activar la cuenta; hasta entonces no se puede entrar.
           </p>
           <Button full size="lg" className="mt-8" onClick={() => navigate('/')}>
@@ -57,14 +58,14 @@ export default function RegistroPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Salaz</p>
         <h1 className="mt-1 font-display text-4xl leading-none">CREAR CUENTA</h1>
         <p className="mt-3 text-sm text-fg-muted">
-          Te llegara un correo para confirmar la cuenta antes de poder entrar.
+          Te llegará un correo para confirmar la cuenta antes de poder entrar.
         </p>
 
         <form onSubmit={onSubmit} className="mt-8 space-y-4">
           <Field label="Usuario" name="usuario" autoComplete="username" required autoFocus />
           <Field label="Correo" name="email" type="email" autoComplete="email" required />
           <Field
-            label="Contrasena"
+            label="Contraseña"
             name="clave"
             type="password"
             autoComplete="new-password"
@@ -86,6 +87,17 @@ export default function RegistroPage() {
             Ya tengo cuenta
           </Link>
         </p>
+
+        {/* Quien crea una cuenta tiene que poder leer las condiciones antes. */}
+        <p className="mt-4 text-center text-xs text-fg-subtle">
+          Al crear la cuenta aceptas las{' '}
+          <Link to="/legal" className="underline hover:text-fg-muted">
+            condiciones de uso
+          </Link>
+          .
+        </p>
+
+        <Footer />
       </div>
     </main>
   )

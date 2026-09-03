@@ -1,0 +1,8 @@
+# Los scripts que arrancan dentro de un contenedor Linux (via #!/bin/sh o
+# #!/bin/bash) tienen que llevar siempre salto de linea LF. Con CRLF (lo que
+# pone Git en Windows por defecto en muchas instalaciones) el interprete de
+# la primera linea queda como "#!/bin/sh\r", que el kernel no reconoce, y el
+# contenedor falla al arrancar con un enganoso "no such file or directory"
+# aunque el fichero exista. Ver tambien deploy/Dockerfile, que ademas limpia
+# esto en la propia imagen como segunda red de seguridad.
+*.sh text eol=lf

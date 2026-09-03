@@ -85,7 +85,7 @@ export function BuscadorIngrediente({ label, valorInicial = '', onSeleccionar }:
             <li className="px-3 py-2 text-sm text-fg-subtle">Buscando...</li>
           ) : resultados.length === 0 ? (
             <li className="px-3 py-2 text-sm text-fg-subtle">
-              Sin resultados. Se guardara "{debounced}" como texto libre.
+              Sin resultados. Se guardará "{debounced}" como texto libre.
             </li>
           ) : (
             resultados.map((r) => (

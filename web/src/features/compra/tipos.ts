@@ -31,6 +31,15 @@ export type HouseholdMember = {
   name: string
   /** Puntos porcentuales, 0-100. La suma de todos los miembros debe dar 100. */
   consumption_share: number
+  /**
+   * Id de la cuenta vinculada, o null si este miembro no tiene cuenta
+   * propia (solo existe para el reparto de gasto). Solo lectura: para
+   * vincular o desvincular se manda `link_username` (ver useCrearMiembro /
+   * useActualizarMiembro en datos.ts), nunca este id directamente.
+   */
+  user: number | null
+  /** Nombre de usuario de la cuenta vinculada, solo para mostrar. */
+  username: string | null
 }
 
 export type Purchase = {
@@ -42,6 +51,13 @@ export type Purchase = {
   supermarket: string
   /** Cuantos dias cubre esta compra, para el coste diario por persona. */
   covers_days: number
+  /**
+   * Solo lectura, los pone el backend: no null cuando esta Purchase nace de
+   * marcar como comprada una linea de la lista de la compra (una Purchase
+   * por tanda de esa lista), null en una compra creada a mano.
+   */
+  shopping_list: number | null
+  trip: number | null
 }
 
 export type PurchaseItem = {
@@ -54,9 +70,17 @@ export type PurchaseItem = {
   unit: string
   /** Decimal en euros, como string (ver nota de arriba). */
   price: string
+  /** Si ya se ha metido en el carro durante esta compra. */
+  purchased: boolean
   is_shared: boolean
   /** Obligatorio cuando is_shared es false: de quien es este gasto. */
   member: number | null
+  /**
+   * Solo lectura, lo pone el backend cuando esta linea es el reflejo real de
+   * haber marcado como comprada una linea de la lista de la compra; null en
+   * una linea creada a mano.
+   */
+  shopping_list_item: number | null
 }
 
 export type Recipe = {
@@ -128,6 +152,14 @@ export type ShoppingListItem = {
   shopping_list: number
   ingredient: number | null
   name: string
+  /**
+   * Identifica "el mismo producto" a traves de sus tandas: lo asigna siempre
+   * el backend (generador_lista comparte uno por producto entre sus tandas;
+   * una linea suelta creada a mano nace con el suyo propio). Nunca se agrupa
+   * por nombre en el cliente: dos lineas de texto libre con el mismo nombre
+   * en la misma lista no son necesariamente el mismo producto que comprar.
+   */
+  group_key: string
   amount: number
   unit: string
   estimated_price: string
@@ -145,6 +177,21 @@ export type ShoppingListItem = {
   /** De donde sale: 'Desayuno, Cena', 'Fruta y verdura'... */
   source: string
   note: string
+}
+
+/**
+ * Cuanto queda en la despensa de un hogar de un producto dado. Se rellena a
+ * mano (ver DespensaPage) y en automatico al marcar/desmarcar una linea de
+ * compra como comprada (ver CompraDetalle.tsx / el campo `purchased` de
+ * PurchaseItem).
+ */
+export type PantryItem = {
+  id: number
+  household: number
+  ingredient: number | null
+  name: string
+  unit: string
+  amount: number
 }
 
 export type IngredientPrice = {
@@ -252,6 +299,64 @@ export type GenerarListaPayload = {
   start_date: string
   end_date: string
   recipe_ids: number[]
+}
+
+// ---------------------------------------------------------------- tickets
+
+/**
+ * Una linea de un ticket ya analizado. `units` es el numero de unidades
+ * (bolsas, botes...) y va a `null` cuando el producto se vende a peso: en
+ * ese caso `amount` es la cantidad en kg/g/l/ml, no un numero de unidades.
+ */
+export type ReceiptLine = {
+  name: string
+  units: string | null
+  /** Cantidad: unidades, kg o litros segun `unit`. */
+  amount: string
+  unit: 'unit' | 'kg' | 'g' | 'l' | 'ml'
+  unit_price: string | null
+  /** Importe de la linea, decimal en euros como string. */
+  total: string
+}
+
+/**
+ * Salida del analisis de un ticket. El objeto real que devuelve la API es
+ * `{}` (vacio) mientras el ticket sigue 'pendiente' -- de ahi que todos los
+ * campos sean opcionales aqui en vez de un tipo aparte para el caso vacio.
+ */
+export type ReceiptParsed = {
+  supermarket: string
+  date: string | null
+  total: string | null
+  lines: ReceiptLine[]
+  warnings: string[]
+}
+
+/**
+ * Ticket de compra: foto del papel + su transcripcion a texto, que se manda
+ * a analizar y, una vez revisado, se confirma -- y ese paso crea una Purchase
+ * real que alimenta Compras, Despensa, Resumen y Hogar (ver useConfirmarTicket
+ * en datos.ts). Todos los campos salvo `household`, `image` y `markdown` son
+ * de solo lectura: los calcula el backend al analizar o confirmar.
+ */
+export type Receipt = {
+  id: number
+  household: number
+  /** URL de la foto subida como justificante, o null si no se adjunto ninguna. */
+  image: string | null
+  /** Transcripcion del ticket. Editable: se reenvia para volver a analizar. */
+  markdown: string
+  status: 'pendiente' | 'analizado' | 'confirmado' | 'error'
+  supermarket: string
+  date: string | null
+  total: string | null
+  parsed: Partial<ReceiptParsed>
+  /** Mensaje del backend cuando status es 'error'. Cadena vacia en cualquier otro caso. */
+  error: string
+  /** Id de la Purchase creada al confirmar, o null hasta que eso pase. */
+  purchase: number | null
+  created: string
+  updated_at: string
 }
 
 // ------------------------------------------------------- busqueda de wger

@@ -20,6 +20,12 @@ class HouseholdMember(models.Model):
         related_name='salaz_household_memberships',
         null=True,
         blank=True,
+        # Una cuenta no puede representar a mas de un miembro a la vez (en
+        # este hogar o en otro): si no, "el hogar accesible por este
+        # usuario" dejaria de tener un sentido unico. NULL no cuenta para
+        # esta restriccion (varios miembros sin cuenta vinculada conviven
+        # sin problema).
+        unique=True,
     )
     consumption_share = models.DecimalField(
         max_digits=5,

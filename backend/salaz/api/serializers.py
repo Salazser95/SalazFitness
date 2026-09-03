@@ -1,15 +1,26 @@
 from rest_framework import serializers
 
 from salaz.models import (
+    DeviceState,
+    FavoriteIngredient,
     Household,
     HouseholdMember,
     IngredientPrice,
+    PantryItem,
     Purchase,
     PurchaseItem,
+    Receipt,
+    RecentIngredient,
     Recipe,
     RecipeIngredient,
     ShoppingList,
     ShoppingListItem,
+    WaterLog,
+    WeeklyPlan,
+    WeightGoal,
+    WorkoutDaySkip,
+    WorkoutReschedule,
+    WorkoutSessionDraft,
 )
 
 
@@ -35,10 +46,17 @@ class HouseholdMemberSerializer(serializers.ModelSerializer):
         min_value=0,
         max_value=100,
     )
+    # Nombre de cuenta, solo para mostrar: quien vincula/desvincula manda
+    # `link_username` (ver HouseholdMemberViewSet), nunca este id ni el de
+    # `user` directamente -- si no, cualquiera podria vincular la cuenta de
+    # otro con solo adivinar su id.
+    username = serializers.CharField(source='user.username', read_only=True, default=None)
+    link_username = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = HouseholdMember
-        fields = ['id', 'household', 'name', 'user', 'consumption_share']
+        fields = ['id', 'household', 'name', 'user', 'username', 'link_username', 'consumption_share']
+        read_only_fields = ['id', 'user']
 
 
 class IngredientPriceSerializer(serializers.ModelSerializer):
@@ -80,7 +98,14 @@ class PurchaseSerializer(serializers.ModelSerializer):
             'covers_days',
             'total_cost',
             'cost_per_day',
+            'shopping_list',
+            'trip',
         ]
+        # shopping_list/trip los pone solo el backend al sincronizar una
+        # tanda de la lista con Compras (ver _sincronizar_compra_real):
+        # dejarlos escribibles permitiria "adoptar" a mano la Purchase de
+        # una tanda ajena con solo adivinar el id de su ShoppingList.
+        read_only_fields = ['id', 'shopping_list', 'trip']
 
 
 class PurchaseItemSerializer(serializers.ModelSerializer):
@@ -94,9 +119,14 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             'amount',
             'unit',
             'price',
+            'purchased',
             'is_shared',
             'member',
+            'shopping_list_item',
         ]
+        # Mismo motivo que shopping_list/trip en PurchaseSerializer: solo lo
+        # pone el backend al sincronizar (ver _sincronizar_compra_real).
+        read_only_fields = ['id', 'shopping_list_item']
 
     def validate(self, attrs):
         ingredient = attrs.get('ingredient', getattr(self.instance, 'ingredient', None))
@@ -104,6 +134,56 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
         if not ingredient and not name:
             raise serializers.ValidationError('Either ingredient or name must be set.')
         return attrs
+
+
+class PantryItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PantryItem
+        fields = ['id', 'household', 'ingredient', 'name', 'unit', 'amount']
+
+    def validate(self, attrs):
+        ingredient = attrs.get('ingredient', getattr(self.instance, 'ingredient', None))
+        name = attrs.get('name', getattr(self.instance, 'name', ''))
+        if not ingredient and not name:
+            raise serializers.ValidationError('Either ingredient or name must be set.')
+        return attrs
+
+
+class ReceiptSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Receipt
+        fields = [
+            'id',
+            'household',
+            'image',
+            'markdown',
+            'status',
+            'supermarket',
+            'date',
+            'total',
+            'parsed',
+            'error',
+            'purchase',
+            'created',
+            'updated_at',
+        ]
+        # Todo lo que sale de analizar el ticket lo escribe solo el backend
+        # (ver ReceiptViewSet.analizar/confirmar). Lo unico que manda el
+        # cliente es el hogar, la foto y el texto: si `parsed` o `total`
+        # fueran escribibles, se podria colar una compra inventada saltandose
+        # el parser.
+        read_only_fields = [
+            'id',
+            'status',
+            'supermarket',
+            'date',
+            'total',
+            'parsed',
+            'error',
+            'purchase',
+            'created',
+            'updated_at',
+        ]
 
 
 class RecipeSerializer(serializers.ModelSerializer):
@@ -191,8 +271,12 @@ class ShoppingListItemSerializer(serializers.ModelSerializer):
             'freeze_on_arrival',
             'source',
             'note',
+            'group_key',
         ]
-        read_only_fields = ['id']
+        # group_key lo asigna el backend (generador_lista o el default del
+        # modelo): dejarlo escribible desde el cliente permitiria juntar (o
+        # separar) productos con solo mandar el mismo valor a mano.
+        read_only_fields = ['id', 'group_key']
 
     def create(self, validated_data):
         """
@@ -205,3 +289,121 @@ class ShoppingListItemSerializer(serializers.ModelSerializer):
             item.aplicar_frescura(item.shopping_list.days or 0)
         item.save()
         return item
+
+
+# --------------------------------------------------------------------------
+# Datos que antes solo vivian en localStorage (ver la tarea de sincronizacion
+# entre PC, Android e iPhone). Todos exponen `updated_at` en solo lectura:
+# es la pieza que deja decidir "ultima escritura gana" al cliente, ver la nota
+# en salaz/models/device_state.py.
+# --------------------------------------------------------------------------
+
+
+class WaterLogSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WaterLog
+        fields = ['id', 'user', 'date', 'milliliters', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class WeightGoalSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WeightGoal
+        fields = ['id', 'user', 'goal_type', 'target_weight', 'target_date', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class WeeklyPlanSerializer(serializers.ModelSerializer):
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WeeklyPlan
+        fields = [
+            'id',
+            'household',
+            'start_date',
+            'end_date',
+            'selection',
+            'by_day',
+            'ingredient_origins',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'household', 'updated_at']
+
+
+class FavoriteIngredientSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = FavoriteIngredient
+        fields = ['id', 'user', 'ingredient', 'created', 'updated_at']
+        read_only_fields = ['id', 'user', 'created', 'updated_at']
+
+
+class RecentIngredientSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = RecentIngredient
+        fields = ['id', 'user', 'ingredient', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class WorkoutRescheduleSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    created = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WorkoutReschedule
+        fields = [
+            'id',
+            'user',
+            'origin_date',
+            'target_date',
+            'origin_routine',
+            'origin_day',
+            'target_routine',
+            'target_day',
+            'created',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'user', 'created', 'updated_at']
+
+
+class WorkoutDaySkipSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WorkoutDaySkip
+        fields = ['id', 'user', 'date', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class WorkoutSessionDraftSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = WorkoutSessionDraft
+        fields = ['id', 'user', 'date', 'content', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']
+
+
+class DeviceStateSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        model = DeviceState
+        fields = ['id', 'user', 'key', 'value', 'updated_at']
+        read_only_fields = ['id', 'user', 'updated_at']

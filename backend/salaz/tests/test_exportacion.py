@@ -1,0 +1,197 @@
+"""
+Pruebas de exportar_datos_usuario / importar_datos_usuario (ver
+salaz/exportacion.py): exportar el contenido de una cuenta y volver a
+montarlo para OTRA cuenta tiene que reproducir los datos, resolviendo cada
+alimento por nombre en vez de copiar ids que en la cuenta destino podrian
+significar otra cosa.
+
+No cubre entreno (rutinas/dias/ejercicios) con una comprobacion de punto a
+punto: montar una rutina de verdad necesita fixtures de wger (unidades de
+repeticion/peso, un Exercise con su Translation) que esta suite no trae
+todavia. Se comprueba en cambio que exportar/importar sin ninguna rutina no
+rompe nada -- la cadena de entreno en si se apoya en los mismos endpoints
+que ya prueba wger, y en salaz/tests/test_reprogramacion_entreno.py para la
+parte propia (WorkoutReschedule/WorkoutDaySkip).
+
+    python manage.py test salaz.tests.test_exportacion
+"""
+
+import datetime
+from decimal import Decimal
+
+from django.contrib.auth.models import User
+from django.test import override_settings
+from django.utils import timezone
+
+from salaz.exportacion import _cliente_para, exportar_datos_usuario, importar_datos_usuario
+from salaz.models import Household, PantryItem, Purchase, PurchaseItem
+from salaz.tests.test_api import SalazApiTestCase, make_ingredient
+from wger.nutrition.models import LogItem, Meal, MealItem, NutritionPlan
+from wger.weight.models import WeightEntry
+
+
+class ExportarImportarTests(SalazApiTestCase):
+    def setUp(self):
+        self.origen = User.objects.create_user(username='origen', password='pw')
+        self.destino = User.objects.create_user(username='destino', password='pw')
+
+        self.pollo = make_ingredient(name='Pechuga de pollo')
+        self.arroz = make_ingredient(name='Arroz blanco')
+
+        self.plan = NutritionPlan.objects.create(
+            user=self.origen, description='Volumen', only_logging=True,
+            goal_energy=2600, goal_protein=180, goal_carbohydrates=260, goal_fat=80,
+        )
+        self.comida = Meal.objects.create(plan=self.plan, order=1, name='Comida')
+        MealItem.objects.create(meal=self.comida, ingredient=self.pollo, amount=Decimal('200'))
+        MealItem.objects.create(meal=self.comida, ingredient=self.arroz, amount=Decimal('100'))
+        LogItem.objects.create(
+            plan=self.plan, meal=self.comida, ingredient=self.pollo,
+            datetime=timezone.now(), amount=Decimal('200'),
+        )
+
+        WeightEntry.objects.create(user=self.origen, date='2026-08-01', weight=Decimal('78.4'))
+        WeightEntry.objects.create(user=self.origen, date='2026-08-15', weight=Decimal('77.9'))
+
+        self.household = Household.objects.create(owner=self.origen, name='Casa de prueba')
+        PantryItem.objects.create(household=self.household, ingredient=self.arroz, unit='g', amount=Decimal('1000'))
+        compra = Purchase.objects.create(household=self.household, date='2026-08-10', supermarket='Mercadona')
+        PurchaseItem.objects.create(
+            purchase=compra, ingredient=self.pollo, amount=Decimal('400'), unit='g',
+            price=Decimal('3.20'), purchased=True,
+        )
+
+    def test_exportar_incluye_lo_creado_en_setup(self):
+        datos = exportar_datos_usuario(self.origen, 'testserver')
+
+        self.assertEqual(datos['version'], 1)
+        self.assertEqual({e['date'] for e in datos['peso']['entradas']}, {'2026-08-01', '2026-08-15'})
+
+        planes = datos['nutricion']['planes']
+        self.assertEqual(len(planes), 1)
+        [comida] = planes[0]['comidas']
+        nombres = {item['ingrediente']['name'] for item in comida['meal_items']}
+        self.assertEqual(nombres, {'Pechuga de pollo', 'Arroz blanco'})
+
+        [entrada_diario] = datos['nutricion']['diario']
+        self.assertEqual(entrada_diario['ingrediente']['name'], 'Pechuga de pollo')
+
+        self.assertEqual(datos['compra']['hogar_nombre'], 'Casa de prueba')
+        self.assertEqual(len(datos['compra']['despensa']), 1)
+        self.assertEqual(len(datos['compra']['compras']), 1)
+
+    def test_importar_reproduce_el_contenido_para_otro_usuario(self):
+        datos = exportar_datos_usuario(self.origen, 'testserver')
+
+        # La cuenta destino ya tiene SUS PROPIOS alimentos con otros ids:
+        # importar_datos_usuario tiene que casarlos por nombre, no por id.
+        make_ingredient(name='Pechuga de pollo')
+        make_ingredient(name='Arroz blanco')
+
+        informe = importar_datos_usuario(self.destino, datos, 'testserver')
+
+        self.assertEqual(informe['fallos'], [])
+
+        plan_destino = NutritionPlan.objects.get(user=self.destino, description='Volumen')
+        items = MealItem.objects.filter(meal__plan=plan_destino)
+        self.assertEqual(
+            {i.ingredient.name for i in items},
+            {'Pechuga de pollo', 'Arroz blanco'},
+        )
+        # Y NO son los mismos objetos Ingredient que los del origen: se
+        # resolvieron contra el catalogo propio del destino.
+        self.assertNotEqual({i.ingredient_id for i in items}, {self.pollo.id, self.arroz.id})
+
+        comida_destino = Meal.objects.get(plan=plan_destino, name='Comida')
+        [entrada_diario] = LogItem.objects.filter(plan=plan_destino)
+        self.assertEqual(entrada_diario.ingredient.name, 'Pechuga de pollo')
+        self.assertEqual(entrada_diario.meal_id, comida_destino.id)
+
+        self.assertEqual(
+            set(WeightEntry.objects.filter(user=self.destino).values_list('date', flat=True)),
+            {datetime.date(2026, 8, 1), datetime.date(2026, 8, 15)},
+        )
+
+        hogar_destino = Household.objects.get(owner=self.destino, name='Casa de prueba')
+        self.assertEqual(PantryItem.objects.filter(household=hogar_destino).count(), 1)
+        self.assertEqual(Purchase.objects.filter(household=hogar_destino).count(), 1)
+
+    def test_diario_se_enlaza_al_plan_existente_aunque_el_plan_no_se_recree(self):
+        # Regresion: si el destino YA tiene un plan con esa descripcion, no
+        # se recrea (para no duplicarlo) -- pero sus entradas del diario
+        # tienen que enlazarse al plan que ya existe, no perderse solo
+        # porque el plan en si se omitio.
+        plan_destino = NutritionPlan.objects.create(user=self.destino, description='Volumen', only_logging=True)
+        make_ingredient(name='Pechuga de pollo')
+        make_ingredient(name='Arroz blanco')
+
+        datos = exportar_datos_usuario(self.origen, 'testserver')
+        informe = importar_datos_usuario(self.destino, datos, 'testserver')
+
+        self.assertEqual(informe['omitidos'].get('planes de nutricion (ya existian)'), 1)
+        self.assertNotIn('entradas del diario (su plan no se importo)', informe['omitidos'])
+
+        [entrada_diario] = LogItem.objects.filter(plan=plan_destino)
+        self.assertEqual(entrada_diario.ingredient.name, 'Pechuga de pollo')
+
+    def test_importar_es_re_ejecutable_sin_duplicar_lo_grueso(self):
+        datos = exportar_datos_usuario(self.origen, 'testserver')
+        importar_datos_usuario(self.destino, datos, 'testserver')
+        importar_datos_usuario(self.destino, datos, 'testserver')
+
+        self.assertEqual(NutritionPlan.objects.filter(user=self.destino, description='Volumen').count(), 1)
+        self.assertEqual(WeightEntry.objects.filter(user=self.destino).count(), 2)
+
+    @override_settings(
+        SECURE_SSL_REDIRECT=True,
+        SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https'),
+    )
+    def test_cliente_interno_no_lo_tumba_la_redireccion_a_https(self):
+        # Regresion: en produccion SALAZ_FORCE_HTTPS=1 activa
+        # SECURE_SSL_REDIRECT. Con rest_framework.test.APIClient esto hacia
+        # que SecurityMiddleware contestara 301 a toda peticion del cliente
+        # interno (nunca pasa por nginx, nunca lleva las cabeceras que
+        # pondria un proxy de verdad). ClienteInterno llama a la vista
+        # directamente (django.urls.resolve + APIRequestFactory), sin pasar
+        # por ningun middleware, asi que este ajuste ya no puede afectarle.
+        cliente = _cliente_para(self.origen, 'ejemplo.trycloudflare.com')
+        self.assertEqual(cliente.get('/api/v2/weightentry/').status_code, 200)
+
+    def test_cliente_interno_da_acceso_a_rutas_de_wger_que_leen_la_sesion(self):
+        # Regresion: ClienteInterno se salta el middleware a proposito (ver
+        # su docstring), y eso incluye SessionMiddleware -- sin ponerlo a
+        # mano, request.session ni existe. RoutineViewSet.get_queryset() de
+        # wger lo lee de verdad (la funcion de entrenador personal), asi que
+        # cualquier importacion que toque rutinas pasaba por aqui SIEMPRE
+        # (_importar_entreno consulta /api/v2/routine/ aunque no haya
+        # ninguna rutina que importar) y reventaba con AttributeError.
+        cliente = _cliente_para(self.origen, 'ejemplo.trycloudflare.com')
+        self.assertEqual(cliente.get('/api/v2/routine/').status_code, 200)
+
+    def test_cliente_interno_admite_un_host_con_puerto(self):
+        # Regresion: con SERVER_NAME (usado antes), Django reconstruye el
+        # Host pegandole el puerto -- si `host` ya trae uno (como
+        # "localhost:8000", tipico en un despliegue sin tunel) quedaba
+        # duplicado ("localhost:8000:80") y ALLOWED_HOSTS lo rechazaba
+        # incluso en '*'. ClienteInterno usa HTTP_HOST, que no tiene ese
+        # problema.
+        cliente = _cliente_para(self.origen, 'localhost:8000')
+        self.assertEqual(cliente.get('/api/v2/weightentry/').status_code, 200)
+
+    @override_settings(
+        SECURE_SSL_REDIRECT=True,
+        SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https'),
+        ALLOWED_HOSTS=['.trycloudflare.com'],
+    )
+    def test_exportar_e_importar_con_los_ajustes_del_tunel(self):
+        # Mismo caso que el anterior pero con los DOS ajustes de produccion a
+        # la vez (ALLOWED_HOSTS restringido + SECURE_SSL_REDIRECT), que es lo
+        # que de verdad hay en el tunel -- cubre tambien el fix del Host, que
+        # hasta ahora no tenia ninguna prueba propia.
+        datos = exportar_datos_usuario(self.origen, 'ejemplo.trycloudflare.com')
+        self.assertEqual(datos['version'], 1)
+
+        make_ingredient(name='Pechuga de pollo')
+        make_ingredient(name='Arroz blanco')
+        informe = importar_datos_usuario(self.destino, datos, 'ejemplo.trycloudflare.com')
+        self.assertEqual(informe['fallos'], [])

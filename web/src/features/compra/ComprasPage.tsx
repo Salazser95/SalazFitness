@@ -28,7 +28,7 @@ export default function ComprasPage() {
       ) : (compras.data ?? []).length === 0 ? (
         <EmptyState
           icon={ShoppingBag}
-          title="Sin compras todavia"
+          title="Sin compras todavía"
           description="Registra tu primera compra para ver el desglose de coste."
           action={{ label: 'Nueva compra', onClick: () => navigate('/compra/compras/nueva') }}
         />
@@ -50,7 +50,7 @@ export default function ComprasPage() {
                           <Store size={14} aria-hidden="true" />
                           {compra.supermarket}
                         </span>
-                        <span>{compra.covers_days} dias</span>
+                        <span>{compra.covers_days} días</span>
                       </p>
                     </div>
                     <p className="tnum shrink-0 font-display text-2xl text-violet">{eur(totalCentimos / 100)}</p>

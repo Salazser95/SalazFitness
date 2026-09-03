@@ -44,3 +44,8 @@ web/ios/
 
 # Variables de despliegue: contrasenas, SMTP y clave de Django.
 deploy/.env
+
+# Salida de Playwright (web/tests/modal.spec.ts): capturas y trazas de cada
+# ejecucion, no aporta nada versionado.
+web/test-results/
+web/playwright-report/

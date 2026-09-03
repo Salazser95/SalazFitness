@@ -76,6 +76,34 @@ DATABASES = {
 INSTALLED_APPS = INSTALLED_APPS + ['salaz']
 ROOT_URLCONF = 'salaz_urls'
 
+# La app empaquetada (APK de Android, iPhone) NO comparte origen con el
+# servidor de desarrollo: pide desde capacitor://, ionic:// o https://localhost,
+# no desde localhost:5173 como el navegador. wger ya abre CORS en /api, pero el
+# login vive en /allauth, que esa regex no cubre (ver la nota de CORS en
+# docs/ARQUITECTURA.md), asi que sin esto el APK no puede ni hacer login contra
+# este servidor de desarrollo. Mismos origenes fijos que salaz_settings_prod.py.
+CORS_ALLOWED_ORIGINS = list(globals().get('CORS_ALLOWED_ORIGINS', [])) + [
+    'capacitor://localhost',
+    'ionic://localhost',
+    'http://localhost',
+    'https://localhost',
+]
+# Ademas de esos origenes fijos, el emulador de Android y el iPhone del dueno
+# no hablan con "localhost": el emulador ve al PC como 10.0.2.2 y el iPhone
+# necesita la IP de la red local (192.168.x.x o 10.x.x.x) en el puerto de Vite
+# y en el del propio backend. Una IP concreta cambia con el router, asi que se
+# permite el rango entero en vez de mantener una IP fija a mano.
+# Los tres rangos privados de la RFC 1918, no solo los dos habituales: la red
+# de casa del dueno es 172.17.x.x, que cae en el tercero (172.16-31) y se
+# quedaba fuera. El emulador de Android ve al PC como 10.0.2.2, cubierto por el
+# segundo.
+CORS_ALLOWED_ORIGIN_REGEXES = list(globals().get('CORS_ALLOWED_ORIGIN_REGEXES', [])) + [
+    r'^http://192\.168\.\d{1,3}\.\d{1,3}:(5173|8000)$',
+    r'^http://10\.\d{1,3}\.\d{1,3}\.\d{1,3}:(5173|8000)$',
+    r'^http://172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:(5173|8000)$',
+]
+CORS_ALLOW_CREDENTIALS = True
+
 # Import other local settings that are not in version control (JWT keys,
 # required for login: without them /allauth/app/v1/auth/login returns a 500).
 try:

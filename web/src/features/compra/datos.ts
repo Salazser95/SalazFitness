@@ -14,8 +14,6 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, fetchAll, type Paginated } from '../../lib/api'
-import { urlApi } from '../../lib/config'
-import { readTokens } from '../../lib/tokens'
 import { today } from '../../lib/format'
 import { costeIngredienteCentimos, eurosACentimos, repartoCompra, sumarCentimos } from './calculo'
 import type {
@@ -27,9 +25,11 @@ import type {
   HouseholdSummary,
   IngredientPrice,
   IngredientWger,
+  PantryItem,
   Purchase,
   PurchaseBreakdown,
   PurchaseItem,
+  Receipt,
   Recipe,
   RecipeCost,
   RecipeIngredient,
@@ -114,38 +114,38 @@ const almacen = {
     { id: 2, household: 1, name: 'Sam', consumption_share: 40 },
   ] as HouseholdMember[],
   purchases: [
-    { id: 1, household: 1, date: '2026-08-18', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7 },
-    { id: 2, household: 1, date: '2026-08-11', description: 'Compra semanal', supermarket: 'Lidl', covers_days: 7 },
-    { id: 3, household: 1, date: '2026-08-04', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7 },
-    { id: 4, household: 1, date: '2026-07-28', description: 'Compra grande', supermarket: 'Carrefour', covers_days: 10 },
-    { id: 5, household: 1, date: '2026-07-21', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7 },
+    { id: 1, household: 1, date: '2026-08-18', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7, shopping_list: null, trip: null },
+    { id: 2, household: 1, date: '2026-08-11', description: 'Compra semanal', supermarket: 'Lidl', covers_days: 7, shopping_list: null, trip: null },
+    { id: 3, household: 1, date: '2026-08-04', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7, shopping_list: null, trip: null },
+    { id: 4, household: 1, date: '2026-07-28', description: 'Compra grande', supermarket: 'Carrefour', covers_days: 10, shopping_list: null, trip: null },
+    { id: 5, household: 1, date: '2026-07-21', description: 'Compra semanal', supermarket: 'Mercadona', covers_days: 7, shopping_list: null, trip: null },
   ] as Purchase[],
   purchaseItems: [
     // Compra 1
-    { id: 1, purchase: 1, ingredient: 9001, name: 'Pechuga de pollo', amount: 1.5, unit: 'kg', price: '9.75', is_shared: true, member: null },
-    { id: 2, purchase: 1, ingredient: 9002, name: 'Arroz blanco', amount: 2, unit: 'kg', price: '2.40', is_shared: true, member: null },
-    { id: 3, purchase: 1, ingredient: null, name: 'Verduras varias', amount: 1, unit: 'lote', price: '8.90', is_shared: true, member: null },
-    { id: 4, purchase: 1, ingredient: null, name: 'Proteina en polvo', amount: 1, unit: 'ud', price: '24.90', is_shared: false, member: 1 },
-    { id: 5, purchase: 1, ingredient: null, name: 'Maquinillas de afeitar', amount: 1, unit: 'ud', price: '5.60', is_shared: false, member: 2 },
+    { id: 1, purchase: 1, ingredient: 9001, name: 'Pechuga de pollo', amount: 1.5, unit: 'kg', price: '9.75', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 2, purchase: 1, ingredient: 9002, name: 'Arroz blanco', amount: 2, unit: 'kg', price: '2.40', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 3, purchase: 1, ingredient: null, name: 'Verduras varias', amount: 1, unit: 'lote', price: '8.90', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 4, purchase: 1, ingredient: null, name: 'Proteina en polvo', amount: 1, unit: 'ud', price: '24.90', purchased: false, is_shared: false, member: 1, shopping_list_item: null },
+    { id: 5, purchase: 1, ingredient: null, name: 'Maquinillas de afeitar', amount: 1, unit: 'ud', price: '5.60', purchased: false, is_shared: false, member: 2, shopping_list_item: null },
     // Compra 2
-    { id: 6, purchase: 2, ingredient: 9008, name: 'Atun en lata', amount: 6, unit: 'ud', price: '7.20', is_shared: true, member: null },
-    { id: 7, purchase: 2, ingredient: 9006, name: 'Avena', amount: 1, unit: 'kg', price: '2.10', is_shared: true, member: null },
-    { id: 8, purchase: 2, ingredient: null, name: 'Fruta variada', amount: 1, unit: 'lote', price: '11.30', is_shared: true, member: null },
-    { id: 9, purchase: 2, ingredient: null, name: 'Champu', amount: 1, unit: 'ud', price: '4.20', is_shared: false, member: 1 },
+    { id: 6, purchase: 2, ingredient: 9008, name: 'Atun en lata', amount: 6, unit: 'ud', price: '7.20', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 7, purchase: 2, ingredient: 9006, name: 'Avena', amount: 1, unit: 'kg', price: '2.10', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 8, purchase: 2, ingredient: null, name: 'Fruta variada', amount: 1, unit: 'lote', price: '11.30', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 9, purchase: 2, ingredient: null, name: 'Champu', amount: 1, unit: 'ud', price: '4.20', purchased: false, is_shared: false, member: 1, shopping_list_item: null },
     // Compra 3
-    { id: 10, purchase: 3, ingredient: 9001, name: 'Pechuga de pollo', amount: 1, unit: 'kg', price: '6.50', is_shared: true, member: null },
-    { id: 11, purchase: 3, ingredient: 9004, name: 'Brocoli', amount: 1, unit: 'kg', price: '2.50', is_shared: true, member: null },
-    { id: 12, purchase: 3, ingredient: 9005, name: 'Huevos', amount: 2, unit: 'docena', price: '6.40', is_shared: true, member: null },
-    { id: 13, purchase: 3, ingredient: null, name: 'Suplemento vitaminas', amount: 1, unit: 'ud', price: '12.00', is_shared: false, member: 2 },
+    { id: 10, purchase: 3, ingredient: 9001, name: 'Pechuga de pollo', amount: 1, unit: 'kg', price: '6.50', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 11, purchase: 3, ingredient: 9004, name: 'Brocoli', amount: 1, unit: 'kg', price: '2.50', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 12, purchase: 3, ingredient: 9005, name: 'Huevos', amount: 2, unit: 'docena', price: '6.40', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 13, purchase: 3, ingredient: null, name: 'Suplemento vitaminas', amount: 1, unit: 'ud', price: '12.00', purchased: false, is_shared: false, member: 2, shopping_list_item: null },
     // Compra 4 (grande, 10 dias)
-    { id: 14, purchase: 4, ingredient: 9002, name: 'Arroz blanco', amount: 5, unit: 'kg', price: '6.00', is_shared: true, member: null },
-    { id: 15, purchase: 4, ingredient: 9003, name: 'Aceite de oliva', amount: 1, unit: 'l', price: '7.80', is_shared: true, member: null },
-    { id: 16, purchase: 4, ingredient: null, name: 'Congelados varios', amount: 1, unit: 'lote', price: '18.50', is_shared: true, member: null },
-    { id: 17, purchase: 4, ingredient: null, name: 'Limpieza del hogar', amount: 1, unit: 'lote', price: '15.20', is_shared: true, member: null },
+    { id: 14, purchase: 4, ingredient: 9002, name: 'Arroz blanco', amount: 5, unit: 'kg', price: '6.00', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 15, purchase: 4, ingredient: 9003, name: 'Aceite de oliva', amount: 1, unit: 'l', price: '7.80', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 16, purchase: 4, ingredient: null, name: 'Congelados varios', amount: 1, unit: 'lote', price: '18.50', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 17, purchase: 4, ingredient: null, name: 'Limpieza del hogar', amount: 1, unit: 'lote', price: '15.20', purchased: false, is_shared: true, member: null, shopping_list_item: null },
     // Compra 5
-    { id: 18, purchase: 5, ingredient: 9007, name: 'Platanos', amount: 1.2, unit: 'kg', price: '2.28', is_shared: true, member: null },
-    { id: 19, purchase: 5, ingredient: 9001, name: 'Pechuga de pollo', amount: 1, unit: 'kg', price: '6.50', is_shared: true, member: null },
-    { id: 20, purchase: 5, ingredient: null, name: 'Ropa deportiva', amount: 1, unit: 'ud', price: '22.00', is_shared: false, member: 1 },
+    { id: 18, purchase: 5, ingredient: 9007, name: 'Platanos', amount: 1.2, unit: 'kg', price: '2.28', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 19, purchase: 5, ingredient: 9001, name: 'Pechuga de pollo', amount: 1, unit: 'kg', price: '6.50', purchased: false, is_shared: true, member: null, shopping_list_item: null },
+    { id: 20, purchase: 5, ingredient: null, name: 'Ropa deportiva', amount: 1, unit: 'ud', price: '22.00', purchased: false, is_shared: false, member: 1, shopping_list_item: null },
   ] as PurchaseItem[],
   recipes: [
     { id: 1, household: 1, name: 'Pollo con arroz y brocoli', servings: 4, instructions: 'Cocer el arroz. Saltear el pollo en dados. Hervir el brocoli al vapor. Mezclar y servir.' },
@@ -174,6 +174,11 @@ const almacen = {
     { id: 4, shopping_list: 1, ingredient: 9005, name: 'Huevos', amount: 1, unit: 'docena', estimated_price: '3.20', purchased: false, supermarket: null },
     { id: 5, shopping_list: 1, ingredient: null, name: 'Papel de cocina', amount: 1, unit: 'ud', estimated_price: '2.50', purchased: false, supermarket: null },
   ] as ShoppingListItem[],
+  // Despensa vacia por defecto: se rellena comprando (o a mano), no trae
+  // ejemplos precargados como el resto del almacen.
+  pantryItems: [] as PantryItem[],
+  // Sin tickets de ejemplo precargados, igual que la despensa: nacen de subir uno.
+  receipts: [] as Receipt[],
 }
 
 async function retraso<T>(valor: T): Promise<T> {
@@ -199,6 +204,9 @@ const claves = {
   costeMedioComida: (householdId: number) => ['compra', 'coste-medio-comida', householdId] as const,
   shoppingList: (householdId: number) => ['compra', 'shopping-list', householdId] as const,
   shoppingListItems: (listId: number) => ['compra', 'shopping-list-items', listId] as const,
+  pantryItems: (householdId: number) => ['compra', 'pantry-items', householdId] as const,
+  receipts: (householdId: number) => ['compra', 'receipts', householdId] as const,
+  receipt: (id: number) => ['compra', 'receipt', id] as const,
 }
 
 // Prefijos usados para invalidar en bloque queries derivadas que no dependen
@@ -209,6 +217,7 @@ const prefijos = {
   purchasesTotal: ['compra', 'purchases-total'] as const,
   breakdown: ['compra', 'breakdown'] as const,
   costeMedioComida: ['compra', 'coste-medio-comida'] as const,
+  pantryItems: ['compra', 'pantry-items'] as const,
 }
 
 // ================================================================
@@ -243,6 +252,10 @@ function lineaEjemplo(parcial: Omit<ShoppingListItem, keyof CamposFrescura> & Pa
     freeze_on_arrival: false,
     source: '',
     note: '',
+    // Igual que el backend (ver _nueva_clave_grupo en el modelo): sin uno
+    // explicito, cada linea de ejemplo nace con su propio grupo de una sola
+    // linea.
+    group_key: crypto.randomUUID(),
     ...parcial,
   }
 }
@@ -257,6 +270,7 @@ type CamposFrescura = Pick<
   | 'freeze_on_arrival'
   | 'source'
   | 'note'
+  | 'group_key'
 >
 
 export function useHousehold() {
@@ -278,6 +292,52 @@ export function useActualizarReparto() {
         if (miembro) miembro.consumption_share = u.consumption_share
       }
       await retraso(null)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: claves.household }),
+  })
+}
+
+export type NuevoMiembro = { household: number; name: string; link_username?: string }
+
+/**
+ * Anade un miembro al hogar. `link_username` es opcional: sin el, el
+ * miembro solo existe para el reparto de gasto (igual que hasta ahora); con
+ * el, vincula de una vez la cuenta de quien ya se haya registrado en la
+ * app, y esa persona pasa a ver y editar los mismos datos del hogar.
+ */
+export function useCrearMiembro() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NuevoMiembro) => {
+      if (BACKEND_LISTO) return api.post<HouseholdMember>(`${BASE}/household-member/`, input)
+      const miembro: HouseholdMember = {
+        id: siguienteId(),
+        household: input.household,
+        name: input.name,
+        consumption_share: 0,
+        user: null,
+        username: input.link_username || null,
+      }
+      almacen.members.push(miembro)
+      return retraso(miembro)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: claves.household }),
+  })
+}
+
+/** Vincula (username no vacio) o desvincula (cadena vacia) la cuenta de un miembro ya creado. */
+export function useVincularMiembro() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; link_username: string }) => {
+      if (BACKEND_LISTO) {
+        return api.patch<HouseholdMember>(`${BASE}/household-member/${input.id}/`, {
+          link_username: input.link_username,
+        })
+      }
+      const miembro = almacen.members.find((m) => m.id === input.id)
+      if (miembro) miembro.username = input.link_username || null
+      return retraso(miembro)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: claves.household }),
   })
@@ -369,12 +429,12 @@ export function usePurchasesConTotal(householdId: number) {
   })
 }
 
-export type NuevaLinea = Omit<PurchaseItem, 'id' | 'purchase'>
+export type NuevaLinea = Omit<PurchaseItem, 'id' | 'purchase' | 'shopping_list_item'>
 
 export function useCrearCompra() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { cabecera: Omit<Purchase, 'id'>; lineas: NuevaLinea[] }) => {
+    mutationFn: async (input: { cabecera: Omit<Purchase, 'id' | 'shopping_list' | 'trip'>; lineas: NuevaLinea[] }) => {
       if (BACKEND_LISTO) {
         const compra = await api.post<Purchase>(`${BASE}/purchase/`, input.cabecera)
         await Promise.all(
@@ -383,10 +443,10 @@ export function useCrearCompra() {
         return compra
       }
       const id = siguienteId()
-      const compra: Purchase = { id, ...input.cabecera }
+      const compra: Purchase = { id, shopping_list: null, trip: null, ...input.cabecera }
       almacen.purchases.push(compra)
       for (const linea of input.lineas) {
-        almacen.purchaseItems.push({ id: siguienteId(), purchase: id, ...linea })
+        almacen.purchaseItems.push({ id: siguienteId(), purchase: id, shopping_list_item: null, ...linea })
       }
       return retraso(compra)
     },
@@ -401,7 +461,7 @@ export function useCrearCompra() {
 export function useActualizarCompra() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { id: number; cambios: Partial<Omit<Purchase, 'id' | 'household'>> }) => {
+    mutationFn: async (input: { id: number; cambios: Partial<Omit<Purchase, 'id' | 'household' | 'shopping_list' | 'trip'>> }) => {
       if (BACKEND_LISTO) return api.patch<Purchase>(`${BASE}/purchase/${input.id}/`, input.cambios)
       const compra = almacen.purchases.find((p) => p.id === input.id)
       if (!compra) throw new Error('Compra no encontrada')
@@ -471,6 +531,7 @@ export function useDuplicarCompra() {
               amount: linea.amount,
               unit: linea.unit,
               price: linea.price,
+              purchased: false,
               is_shared: linea.is_shared,
               member: linea.member,
               purchase: compra.id,
@@ -488,10 +549,12 @@ export function useDuplicarCompra() {
         description: original.description,
         supermarket: original.supermarket,
         covers_days: original.covers_days,
+        shopping_list: null,
+        trip: null,
       }
       almacen.purchases.push(compra)
       for (const linea of lineasOriginales) {
-        almacen.purchaseItems.push({ ...linea, id: siguienteId(), purchase: id })
+        almacen.purchaseItems.push({ ...linea, id: siguienteId(), purchase: id, purchased: false, shopping_list_item: null })
       }
       return retraso(compra)
     },
@@ -512,7 +575,7 @@ export function useCrearLineaCompra() {
       if (BACKEND_LISTO) {
         return api.post<PurchaseItem>(`${BASE}/purchase-item/`, { ...input.linea, purchase: input.purchase })
       }
-      const item: PurchaseItem = { id: siguienteId(), purchase: input.purchase, ...input.linea }
+      const item: PurchaseItem = { id: siguienteId(), purchase: input.purchase, shopping_list_item: null, ...input.linea }
       almacen.purchaseItems.push(item)
       return retraso(item)
     },
@@ -543,6 +606,10 @@ export function useActualizarLineaCompra() {
       qc.invalidateQueries({ queryKey: prefijos.summary })
       qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
       qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+      // Marcar/desmarcar como comprada puede haber ajustado la despensa en
+      // el backend (ver PurchaseItemViewSet.perform_update): sin saber aqui
+      // el household, se invalida el prefijo entero en vez de una clave sola.
+      qc.invalidateQueries({ queryKey: prefijos.pantryItems })
     },
   })
 }
@@ -566,7 +633,75 @@ export function useEliminarLineaCompra() {
       qc.invalidateQueries({ queryKey: prefijos.summary })
       qc.invalidateQueries({ queryKey: prefijos.gastoSemanal })
       qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+      // Borrar una linea que seguia marcada como comprada tambien devuelve
+      // su cantidad a la despensa (ver PurchaseItemViewSet.perform_destroy).
+      qc.invalidateQueries({ queryKey: prefijos.pantryItems })
     },
+  })
+}
+
+// ================================================================
+// Despensa
+// ================================================================
+
+async function cargarDespensa(householdId: number): Promise<PantryItem[]> {
+  if (BACKEND_LISTO) return fetchAll<PantryItem>(`${BASE}/pantry-item/?household=${householdId}`)
+  return retraso(almacen.pantryItems.filter((i) => i.household === householdId))
+}
+
+export function usePantryItems(householdId: number) {
+  return useQuery({
+    queryKey: claves.pantryItems(householdId),
+    queryFn: () => cargarDespensa(householdId),
+    enabled: householdId > 0,
+  })
+}
+
+export type NuevaLineaDespensa = { household: number; ingredient?: number | null; name: string; unit: string; amount: number }
+
+/** Anade una linea a mano a la despensa. */
+export function useCrearPantryItem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NuevaLineaDespensa) => {
+      if (BACKEND_LISTO) return api.post<PantryItem>(`${BASE}/pantry-item/`, input)
+      const item: PantryItem = { id: siguienteId(), ingredient: null, ...input }
+      almacen.pantryItems.push(item)
+      return retraso(item)
+    },
+    onSuccess: (item) => qc.invalidateQueries({ queryKey: claves.pantryItems(item.household) }),
+  })
+}
+
+/** Corrige a mano la cantidad de una linea de despensa (segun se va gastando). */
+export function useActualizarPantryItem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number; amount: number }) => {
+      if (BACKEND_LISTO) return api.patch<PantryItem>(`${BASE}/pantry-item/${input.id}/`, { amount: input.amount })
+      const item = almacen.pantryItems.find((i) => i.id === input.id)
+      if (!item) throw new Error('Linea de despensa no encontrada')
+      item.amount = input.amount
+      return retraso(item)
+    },
+    onSuccess: (item) => qc.invalidateQueries({ queryKey: claves.pantryItems(item.household) }),
+  })
+}
+
+/** Quita una linea de despensa. */
+export function useEliminarPantryItem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/pantry-item/${input.id}/`)
+        return input
+      }
+      const idx = almacen.pantryItems.findIndex((i) => i.id === input.id)
+      if (idx >= 0) almacen.pantryItems.splice(idx, 1)
+      return retraso(input)
+    },
+    onSuccess: ({ household }) => qc.invalidateQueries({ queryKey: claves.pantryItems(household) }),
   })
 }
 
@@ -674,7 +809,17 @@ function inicioDeSemana(iso: string): string {
 // ================================================================
 
 async function cargarRecetas(householdId: number): Promise<Recipe[]> {
-  if (BACKEND_LISTO) return fetchAll<Recipe>(`${BASE}/recipe/?household=${householdId}`)
+  if (BACKEND_LISTO) {
+    // `ordering=name` para que la paginacion (LIMIT/OFFSET sin ORDER BY
+    // estable) no repita ni salte filas entre paginas -- sin un orden fijo,
+    // MySQL no garantiza que la pagina 2 empiece justo donde acabo la 1.
+    const paginas = await fetchAll<Recipe>(`${BASE}/recipe/?household=${householdId}&ordering=name`)
+    // Defensa extra: si aun asi llega algun id repetido (dos household
+    // solapados, una recarga a mitad de escritura...), no se ve duplicado
+    // en la lista.
+    const vistos = new Set<number>()
+    return paginas.filter((r) => (vistos.has(r.id) ? false : (vistos.add(r.id), true)))
+  }
   return retraso(almacen.recipes.filter((r) => r.household === householdId))
 }
 
@@ -691,6 +836,24 @@ async function cargarReceta(id: number): Promise<Recipe> {
 
 export function useRecipe(id: number) {
   return useQuery({ queryKey: claves.recipe(id), queryFn: () => cargarReceta(id), enabled: id > 0 })
+}
+
+export type NuevaReceta = Omit<Recipe, 'id' | 'image'>
+
+/** Crea una receta nueva (sin ingredientes todavia: se anaden aparte con useCrearIngredienteReceta). */
+export function useCrearReceta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NuevaReceta) => {
+      if (BACKEND_LISTO) return api.post<Recipe>(`${BASE}/recipe/`, input)
+      const receta: Recipe = { id: siguienteId(), image: null, ...input }
+      almacen.recipes.push(receta)
+      return retraso(receta)
+    },
+    onSuccess: (receta) => {
+      qc.invalidateQueries({ queryKey: claves.recipes(receta.household) })
+    },
+  })
 }
 
 /** Cambia nombre, raciones o instrucciones de una receta ya creada. */
@@ -714,39 +877,18 @@ export function useActualizarReceta() {
 }
 
 /**
- * Sube la foto de una receta. `api.patch` de lib/api.ts siempre manda JSON:
- * para subir un fichero hace falta `multipart/form-data`, que el navegador
+ * Sube la foto de una receta. `api.patchForm` de lib/api.ts: un FormData en
+ * vez de JSON, porque hace falta `multipart/form-data`, que el navegador
  * construye solo a partir de un `FormData` (no forzar el Content-Type a
- * mano, o pierde el boundary). Mismo patron que
- * `useUploadGalleryPhoto` en features/yo/api.ts: fetch directo con la
- * cabecera Authorization sacada de readTokens(), y ApiError en el fallo
- * para que la UI lo trate igual que cualquier otro error.
+ * mano, o pierde el boundary).
  */
 export function useSubirFotoReceta() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, file }: { id: number; file: File }) => {
-      const tokens = readTokens()
       const body = new FormData()
       body.append('image', file)
-
-      const res = await fetch(urlApi(`${BASE}/recipe/${id}/`), {
-        method: 'PATCH',
-        headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : undefined,
-        body,
-      })
-
-      if (!res.ok) {
-        let parsed: unknown = null
-        try {
-          parsed = await res.json()
-        } catch {
-          /* respuesta sin cuerpo JSON */
-        }
-        throw new ApiError(res.status, parsed)
-      }
-
-      return (await res.json()) as Recipe
+      return api.patchForm<Recipe>(`${BASE}/recipe/${id}/`, body)
     },
     onSuccess: (receta) => {
       qc.invalidateQueries({ queryKey: claves.recipe(receta.id) })
@@ -1013,6 +1155,18 @@ export function useMarcarComprado() {
     },
     onSuccess: (item) => {
       qc.invalidateQueries({ queryKey: claves.shoppingListItems(item.shopping_list) })
+      // Marcar/desmarcar como comprado puede haber creado o tocado su
+      // reflejo real en Compras -- una Purchase por tanda de la lista, con
+      // su PurchaseItem -- y, con ello, la despensa (ver
+      // _sincronizar_compra_real en el backend). No se sabe aqui el
+      // household ni el id de esa Purchase, asi que se invalidan los
+      // prefijos enteros en vez de una clave sola.
+      qc.invalidateQueries({ queryKey: ['compra', 'purchases'] })
+      qc.invalidateQueries({ queryKey: ['compra', 'purchase-items'] })
+      qc.invalidateQueries({ queryKey: ['compra', 'breakdown'] })
+      qc.invalidateQueries({ queryKey: prefijos.pantryItems })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
     },
   })
 }
@@ -1032,6 +1186,87 @@ export function useEliminarLineaLista() {
     },
     onSuccess: ({ shopping_list }) => {
       qc.invalidateQueries({ queryKey: claves.shoppingListItems(shopping_list) })
+    },
+  })
+}
+
+/**
+ * Borra la lista de la compra entera, con todas sus lineas. No hay hook
+ * equivalente hasta ahora (ver encargo): sin esto, una lista generada por
+ * error se queda de "activa" para siempre porque useListaActiva siempre coge
+ * la mas reciente.
+ *
+ * Al invalidar claves.shoppingList(household), useListaActiva vuelve a pedir
+ * la lista mas reciente y automaticamente cae en la anterior (o en null si
+ * no queda ninguna): no hace falta logica extra para "la lista activa pasa a
+ * ser la anterior".
+ */
+export function useEliminarLista() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/shopping-list/${input.id}/`)
+        return input
+      }
+      const idx = almacen.shoppingLists.findIndex((l) => l.id === input.id)
+      if (idx >= 0) almacen.shoppingLists.splice(idx, 1)
+      for (let i = almacen.shoppingListItems.length - 1; i >= 0; i--) {
+        if (almacen.shoppingListItems[i]!.shopping_list === input.id) almacen.shoppingListItems.splice(i, 1)
+      }
+      return retraso(input)
+    },
+    onSuccess: ({ id, household }) => {
+      qc.removeQueries({ queryKey: claves.shoppingListItems(id) })
+      qc.invalidateQueries({ queryKey: claves.shoppingList(household) })
+      qc.invalidateQueries({ queryKey: ['compra', 'cobertura'] })
+    },
+  })
+}
+
+/**
+ * Quita un producto de TODA la lista, no solo la fila que se pulso. Hace
+ * falta porque desde que la compra se reparte en tandas (ver
+ * backend/salaz/frescura.py) un mismo producto puede tener una linea por
+ * tanda: borrar una sola no lo quita del todo.
+ *
+ * El backend no tiene un endpoint bulk para esto, asi que se borra cada
+ * linea por separado (mismo patron que useCrearCompra con varias lineas) y
+ * solo se invalida una vez, al final.
+ */
+/**
+ * Quita un producto de TODA la lista, no solo la fila que se pulso: todas sus
+ * tandas de una vez. Hace falta porque desde que la compra se reparte en
+ * tandas (ver backend/salaz/frescura.py) un mismo producto puede tener una
+ * linea por tanda, y borrar una sola no lo quita del todo.
+ *
+ * Una unica peticion DELETE atomica al backend (por-grupo), no N peticiones
+ * en paralelo: si el movil pierde la conexion a mitad, con N peticiones
+ * sueltas el producto quedaria a medio borrar en unas tandas si y en otras
+ * no. Con la transaccion del backend, o se borra entero o no se borra nada.
+ * El agrupado usa `group_key` (asignado por el servidor), nunca el nombre:
+ * dos productos de texto libre con el mismo nombre en la misma lista no son
+ * necesariamente el mismo producto.
+ */
+export function useEliminarProductoLista() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { groupKey: string; shopping_list: number }) => {
+      if (BACKEND_LISTO) {
+        return api.del<{ shopping_list: number; deleted: number }>(
+          `${BASE}/shopping-list-item/by-group/${input.groupKey}/`,
+        )
+      }
+      const idx = almacen.shoppingListItems.filter((i) => i.group_key === input.groupKey)
+      for (const item of idx) {
+        const i = almacen.shoppingListItems.findIndex((x) => x.id === item.id)
+        if (i >= 0) almacen.shoppingListItems.splice(i, 1)
+      }
+      return retraso({ shopping_list: input.shopping_list, deleted: idx.length })
+    },
+    onSuccess: ({ shopping_list }) => {
+      qc.invalidateQueries({ queryKey: claves.shoppingListItems(shopping_list) })
+      qc.invalidateQueries({ queryKey: ['compra', 'cobertura'] })
     },
   })
 }
@@ -1284,6 +1519,277 @@ export function useCobertura(listId: number, fecha: string) {
     queryFn: () => api.get<Cobertura>(`${BASE}/shopping-list/${listId}/coverage/?date=${fecha}`),
     enabled: listId > 0 && fecha.length === 10,
     staleTime: 60_000,
+  })
+}
+
+// ================================================================
+// Tickets de compra
+// ================================================================
+
+async function cargarTickets(householdId: number): Promise<Receipt[]> {
+  if (BACKEND_LISTO) return fetchAll<Receipt>(`${BASE}/receipt/?household=${householdId}`)
+  return retraso(
+    almacen.receipts
+      .filter((t) => t.household === householdId)
+      .slice()
+      .sort((a, b) => b.created.localeCompare(a.created)),
+  )
+}
+
+export function useReceipts(householdId: number) {
+  return useQuery({
+    queryKey: claves.receipts(householdId),
+    queryFn: () => cargarTickets(householdId),
+    enabled: householdId > 0,
+  })
+}
+
+async function cargarTicket(id: number): Promise<Receipt> {
+  if (BACKEND_LISTO) return api.get<Receipt>(`${BASE}/receipt/${id}/`)
+  const ticket = almacen.receipts.find((t) => t.id === id)
+  if (!ticket) throw new Error('Ticket no encontrado')
+  return retraso(ticket)
+}
+
+export function useReceipt(id: number) {
+  return useQuery({ queryKey: claves.receipt(id), queryFn: () => cargarTicket(id), enabled: id > 0 })
+}
+
+export type NuevoTicket = { household: number; image?: File | null; markdown?: string }
+
+/**
+ * Sube un ticket nuevo: la foto de papel (como justificante) y/o la
+ * transcripcion pegada a mano. Un FormData -- api.postForm en vez de
+ * api.post porque esto es multipart, no JSON -- pero por lo demas pasa por
+ * el mismo cliente que el resto de la app: hereda el refresco de token en
+ * 401/403, que un fetch a mano no tenia (y esta pantalla, por el tiempo que
+ * lleva transcribir un ticket entero, es de las que mas facil topa con un
+ * access token ya caducado -- ver docs/API-CONTRACT.md, dura 5 minutos).
+ */
+export function useSubirTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NuevoTicket) => {
+      if (BACKEND_LISTO) {
+        const body = new FormData()
+        body.append('household', String(input.household))
+        if (input.image) body.append('image', input.image)
+        if (input.markdown) body.append('markdown', input.markdown)
+        return api.postForm<Receipt>(`${BASE}/receipt/`, body)
+      }
+
+      const ahora = new Date().toISOString()
+      const ticket: Receipt = {
+        id: siguienteId(),
+        household: input.household,
+        // URL local solo para poder ensenar la miniatura en el mock: nunca
+        // se manda a ningun sitio, y se pierde al recargar la pagina.
+        image: input.image ? URL.createObjectURL(input.image) : null,
+        markdown: input.markdown ?? '',
+        status: 'pendiente',
+        supermarket: '',
+        date: null,
+        total: null,
+        parsed: {},
+        error: '',
+        purchase: null,
+        created: ahora,
+        updated_at: ahora,
+      }
+      almacen.receipts.push(ticket)
+      return retraso(ticket)
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: claves.receipts(ticket.household) })
+    },
+  })
+}
+
+/**
+ * Transcribe la foto ya subida a `markdown`, via vision (Claude), sin
+ * analizar ni tocar compras/despensa -- eso lo sigue haciendo
+ * useAnalizarTicket() aparte. Si el servidor no tiene la clave configurada,
+ * o Claude falla, la llamada rechaza con el mensaje del backend (mismo
+ * ApiError que el resto de mutaciones): el texto se queda vacio y el
+ * usuario puede escribirlo o pegarlo a mano, como siempre.
+ */
+export function useTranscribirTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number }) => {
+      if (BACKEND_LISTO) return api.post<Receipt>(`${BASE}/receipt/${input.id}/transcribir/`)
+
+      // Sin backend real no hay vision que llamar: se deja tal cual para
+      // que la pantalla caiga al mismo mensaje de error que si faltara la
+      // clave, y el flujo manual (escribir el texto) siga siendo el camino.
+      throw new Error('La transcripción automática no está disponible en este modo.')
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: claves.receipt(ticket.id) })
+      qc.invalidateQueries({ queryKey: claves.receipts(ticket.household) })
+    },
+  })
+}
+
+/**
+ * Analiza (o reanaliza) un ticket. `markdown`, si se manda, reemplaza el
+ * texto guardado en la misma llamada -- es el arreglo cuando la transcripcion
+ * ha leido mal una linea: se corrige el texto y se vuelve a analizar de una.
+ *
+ * El backend responde 400 cuando no hay texto que analizar, pero con el
+ * propio ticket (ya en status 'error') en el cuerpo: se recupera ese cuerpo
+ * en vez de dejar que el 400 tumbe la mutacion, para que la pantalla lo trate
+ * igual que cualquier otro ticket en error (mensaje en rojo + reintentar),
+ * no como un fallo de red.
+ */
+export function useAnalizarTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; markdown?: string }) => {
+      if (BACKEND_LISTO) {
+        try {
+          return await api.post<Receipt>(
+            `${BASE}/receipt/${input.id}/analizar/`,
+            input.markdown !== undefined ? { markdown: input.markdown } : undefined,
+          )
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 400 && e.body && typeof e.body === 'object') {
+            return e.body as Receipt
+          }
+          throw e
+        }
+      }
+
+      const ticket = almacen.receipts.find((t) => t.id === input.id)
+      if (!ticket) throw new Error('Ticket no encontrado')
+      if (input.markdown !== undefined) ticket.markdown = input.markdown
+      ticket.updated_at = new Date().toISOString()
+
+      if (!ticket.markdown.trim()) {
+        ticket.status = 'error'
+        ticket.error = 'No hay texto que analizar. Escribe o pega la transcripcion del ticket.'
+        return retraso(ticket)
+      }
+
+      // Analisis de mentira: no reimplementa el parser real (eso lo hace el
+      // backend), solo deja el ticket en un estado plausible para poder
+      // probar el resto del flujo con BACKEND_LISTO = false.
+      ticket.status = 'analizado'
+      ticket.error = ''
+      ticket.supermarket = 'Mercadona'
+      ticket.date = today()
+      ticket.total = '19.10'
+      ticket.parsed = {
+        supermarket: ticket.supermarket,
+        date: ticket.date,
+        total: ticket.total,
+        lines: [
+          { name: 'Leche entera 1L', units: '2', amount: '2', unit: 'unit', unit_price: '0.89', total: '1.78' },
+          { name: 'Pan de molde', units: '1', amount: '1', unit: 'unit', unit_price: null, total: '1.45' },
+          { name: 'Platano', units: null, amount: '0.760', unit: 'kg', unit_price: '3.00', total: '2.28' },
+        ],
+        warnings: ['Análisis de ejemplo: todavía sin backend real (BACKEND_LISTO = false).'],
+      }
+      return retraso(ticket)
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: claves.receipt(ticket.id) })
+      qc.invalidateQueries({ queryKey: claves.receipts(ticket.household) })
+    },
+  })
+}
+
+/** Confirma un ticket ya analizado: a partir de aqui existe una Purchase real. */
+export function useConfirmarTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number }) => {
+      if (BACKEND_LISTO) return api.post<Receipt>(`${BASE}/receipt/${input.id}/confirmar/`)
+
+      const ticket = almacen.receipts.find((t) => t.id === input.id)
+      if (!ticket) throw new Error('Ticket no encontrado')
+      if (ticket.status === 'confirmado') return retraso(ticket) // idempotente, igual que el backend real
+      if (ticket.status !== 'analizado') throw new Error('El ticket todavía no está analizado.')
+
+      const lineas = ticket.parsed.lines ?? []
+      const purchaseId = siguienteId()
+      almacen.purchases.push({
+        id: purchaseId,
+        household: ticket.household,
+        date: ticket.date ?? today(),
+        description: `Ticket ${ticket.supermarket || 'sin identificar'}`,
+        supermarket: ticket.supermarket,
+        covers_days: 7,
+        shopping_list: null,
+        trip: null,
+      })
+      for (const linea of lineas) {
+        const amount = Number(String(linea.amount).replace(',', '.')) || 0
+        almacen.purchaseItems.push({
+          id: siguienteId(),
+          purchase: purchaseId,
+          ingredient: null,
+          name: linea.name,
+          amount,
+          unit: linea.unit,
+          price: linea.total,
+          purchased: true,
+          is_shared: true,
+          member: null,
+          shopping_list_item: null,
+        })
+        // Igual que confirmar de verdad: lo comprado tambien entra en la despensa.
+        almacen.pantryItems.push({
+          id: siguienteId(),
+          household: ticket.household,
+          ingredient: null,
+          name: linea.name,
+          unit: linea.unit,
+          amount,
+        })
+      }
+
+      ticket.status = 'confirmado'
+      ticket.purchase = purchaseId
+      ticket.updated_at = new Date().toISOString()
+      return retraso(ticket)
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: claves.receipt(ticket.id) })
+      qc.invalidateQueries({ queryKey: claves.receipts(ticket.household) })
+      // Confirmar crea una Purchase real -- y con ella toca Despensa, Resumen
+      // y puede marcar lineas de la Lista si el ticket venia de una compra en
+      // curso. Mismo motivo y mismas invalidaciones que useMarcarComprado
+      // (ver su comentario): no se sabe aqui el id de esa Purchase ni si tocó
+      // alguna linea de la lista, asi que se invalidan los prefijos enteros.
+      qc.invalidateQueries({ queryKey: ['compra', 'purchases'] })
+      qc.invalidateQueries({ queryKey: ['compra', 'purchase-items'] })
+      qc.invalidateQueries({ queryKey: ['compra', 'breakdown'] })
+      qc.invalidateQueries({ queryKey: prefijos.pantryItems })
+      qc.invalidateQueries({ queryKey: prefijos.summary })
+      qc.invalidateQueries({ queryKey: prefijos.purchasesTotal })
+      qc.invalidateQueries({ queryKey: ['compra', 'shopping-list-items'] })
+    },
+  })
+}
+
+/** Borra un ticket. No toca la Purchase que ya se hubiera creado al confirmarlo. */
+export function useEliminarTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { id: number; household: number }) => {
+      if (BACKEND_LISTO) {
+        await api.del(`${BASE}/receipt/${input.id}/`)
+        return input
+      }
+      const idx = almacen.receipts.findIndex((t) => t.id === input.id)
+      if (idx >= 0) almacen.receipts.splice(idx, 1)
+      return retraso(input)
+    },
+    onSuccess: ({ id, household }) => {
+      qc.removeQueries({ queryKey: claves.receipt(id) })
+      qc.invalidateQueries({ queryKey: claves.receipts(household) })
+    },
   })
 }
 

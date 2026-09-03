@@ -1,31 +1,26 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { BedDouble, ChevronLeft, ChevronRight, Flag, Info } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { BedDouble, ChevronLeft, ChevronRight, Clock, Flag, Info } from 'lucide-react'
 
 import { Button, Card, EmptyState, ErrorState, Modal, SkeletonList, Thumbnail } from '../../components/ui'
 import { useAjustes } from '../../lib/settings'
-import { today } from '../../lib/format'
+import { duration, hhmmss, today } from '../../lib/format'
 import {
-  useActiveRoutine,
   useCrearSesion,
-  useDateSequenceGym,
   useEliminarSerie,
   useExerciseMedia,
   useExerciseNames,
   useRegistrarSerie,
   type SetConfigData,
 } from './api'
-import { aplicarMovidos, useMovidos } from './local'
+import { useEstadoDelDia } from './estadoDelDia'
 import { RestTimer } from './components/RestTimer'
 import { SerieRow } from './components/SerieRow'
-import {
-  borrarProgreso,
-  guardarProgreso,
-  leerProgreso,
-  type SesionProgreso,
-} from './lib/sesionStorage'
+import { useGuardarSesionDraft, useLimpiarSesionDraft, useSesionDraft } from './sesionDraft'
+import type { SesionProgreso } from './lib/sesionStorage'
 
 const DESCANSO_POR_DEFECTO = 90
+const RETARDO_GUARDADO_MS = 500
 
 /** Agrupa las series ya expandidas por ejercicio, respetando el primer orden de aparicion. */
 function agruparPorEjercicio(sets: SetConfigData[]): { exercise: number; sets: SetConfigData[] }[] {
@@ -43,25 +38,19 @@ function agruparPorEjercicio(sets: SetConfigData[]): { exercise: number; sets: S
 
 export default function SesionPage() {
   const navigate = useNavigate()
-  const fecha = today()
+  const [params] = useSearchParams()
+  // Por defecto hoy: "Empezar entreno" desde Hoy o desde el calendario de
+  // Entreno manda ?fecha=, pero entrar sin ella (enlace viejo, barra de
+  // direcciones) sigue funcionando igual que antes.
+  const fecha = params.get('fecha') || today()
 
-  const activeRoutineQ = useActiveRoutine()
-  const activeRoutine = activeRoutineQ.data
-  const secuencia = useDateSequenceGym(activeRoutine?.id ?? null)
-
-  // Mismo desplazamiento puntual que aplica HoyPage (ver features/entreno/local.ts):
-  // lo que aqui se entrena tiene que coincidir con lo que Hoy muestra para la fecha.
-  const movidos = useMovidos(activeRoutine?.id ?? null)
-  const secuenciaAplicada = useMemo(
-    () => (secuencia.data ? aplicarMovidos(secuencia.data, movidos) : secuencia.data),
-    [secuencia.data, movidos],
-  )
-
-  const diaHoy = useMemo(
-    () => secuenciaAplicada?.find((d) => d.date === fecha) ?? null,
-    [secuenciaAplicada, fecha],
-  )
-
+  // Unica fuente de verdad de "que toca esta fecha": la misma que usan Hoy y
+  // el calendario de Entreno (ver estadoDelDia.ts), ya con los intercambios
+  // aplicados. Sustituye a la derivacion manual que habia aqui antes
+  // (rutina activa + secuencia + movidos de localStorage por separado).
+  const estado = useEstadoDelDia(fecha)
+  const activeRoutine = estado.rutina
+  const diaHoy = estado.dia
   const esDescanso = diaHoy ? !diaHoy.day || diaHoy.day.is_rest : false
 
   const ejerciciosBase = useMemo(() => {
@@ -85,10 +74,19 @@ export default function SesionPage() {
   const exerciseIdActual = progreso ? (progreso.ejercicios[progreso.ejercicioActual]?.exercise ?? 0) : 0
   const media = useExerciseMedia(exerciseIdActual)
 
-  // Carga el progreso guardado o arranca uno nuevo, una sola vez por dia+rutina.
+  // Progreso guardado en el servidor (ver sesionDraft.ts): reemplaza al
+  // localStorage de antes, para que un entreno a medias se pueda retomar
+  // desde otro dispositivo.
+  const draftQ = useSesionDraft(fecha)
+  const guardarDraft = useGuardarSesionDraft(fecha)
+  const limpiarDraft = useLimpiarSesionDraft(fecha)
+
+  // Carga el progreso guardado (o arranca uno nuevo) en cuanto se sabe que
+  // toca ese dia Y ya se sabe si habia un borrador guardado en el servidor.
   useEffect(() => {
     if (progreso || !activeRoutine || !diaHoy?.day || ejerciciosBase.length === 0) return
-    const guardado = leerProgreso(activeRoutine.id, fecha)
+    if (draftQ.isLoading) return
+    const guardado = draftQ.data
     if (guardado && guardado.dayId === diaHoy.day.id) {
       setProgreso(guardado)
       return
@@ -99,6 +97,7 @@ export default function SesionPage() {
       fecha,
       ejercicioActual: 0,
       sesionId: null,
+      horaInicio: new Date().toISOString(),
       ejercicios: ejerciciosBase.map((e) => ({
         exercise: e.exercise,
         series: e.sets.map((s, i) => ({
@@ -114,31 +113,64 @@ export default function SesionPage() {
         })),
       })),
     })
-  }, [activeRoutine, diaHoy, ejerciciosBase, fecha, progreso])
+  }, [activeRoutine, diaHoy, ejerciciosBase, fecha, progreso, draftQ.data, draftQ.isLoading])
+
+  // Guarda con retardo: cada serie marcada o cifra tecleada cambia
+  // `progreso`, y no hace falta una peticion por cada una (mismo patron que
+  // el objetivo de peso en features/yo/YoPage.tsx).
+  const temporizadorDraft = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const progresoRef = useRef(progreso)
+  const guardarDraftRef = useRef(guardarDraft)
+  useEffect(() => {
+    progresoRef.current = progreso
+    guardarDraftRef.current = guardarDraft
+  }, [progreso, guardarDraft])
 
   useEffect(() => {
-    if (progreso) guardarProgreso(progreso)
+    if (!progreso) return
+    if (temporizadorDraft.current) clearTimeout(temporizadorDraft.current)
+    temporizadorDraft.current = setTimeout(() => {
+      guardarDraftRef.current.mutate(progresoRef.current!)
+    }, RETARDO_GUARDADO_MS)
+    return () => {
+      if (temporizadorDraft.current) clearTimeout(temporizadorDraft.current)
+    }
   }, [progreso])
+
+  // Si se desmonta con un guardado pendiente (se navega fuera antes de que
+  // pasen los 500ms), lo manda ya en vez de perderlo.
+  useEffect(() => {
+    return () => {
+      if (temporizadorDraft.current) {
+        clearTimeout(temporizadorDraft.current)
+        if (progresoRef.current) guardarDraftRef.current.mutate(progresoRef.current)
+      }
+    }
+  }, [])
 
   const crearSesion = useCrearSesion()
   const registrarSerie = useRegistrarSerie()
   const eliminarSerie = useEliminarSerie()
   const [desmarcandoIdx, setDesmarcandoIdx] = useState<number | null>(null)
 
-  if (activeRoutineQ.isLoading || secuencia.isLoading) {
+  // Cronometro de la sesion entera: tic cada segundo mientras haya progreso,
+  // para que la pastilla del header muestre el tiempo transcurrido en vivo.
+  const [ahora, setAhora] = useState(() => Date.now())
+  useEffect(() => {
+    if (!progreso) return
+    const id = setInterval(() => setAhora(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [progreso])
+  const segundosTranscurridos = progreso
+    ? Math.max(0, Math.floor((ahora - new Date(progreso.horaInicio).getTime()) / 1000))
+    : 0
+
+  if (estado.isLoading) {
     return <SkeletonList rows={4} height="h-24" />
   }
 
-  if (activeRoutineQ.isError || secuencia.isError) {
-    return (
-      <ErrorState
-        message="No se ha podido cargar el entreno de hoy."
-        onRetry={() => {
-          void activeRoutineQ.refetch()
-          void secuencia.refetch()
-        }}
-      />
-    )
+  if (estado.isError) {
+    return <ErrorState message="No se ha podido cargar el entreno de esta fecha." />
   }
 
   if (!activeRoutine) {
@@ -156,8 +188,8 @@ export default function SesionPage() {
     return (
       <EmptyState
         icon={BedDouble}
-        title="Hoy toca descansar"
-        description="No hay entreno programado para hoy en la rutina activa."
+        title="Toca descansar"
+        description="No hay entreno programado para esta fecha en la rutina activa."
         action={{ label: 'Volver a Hoy', onClick: () => navigate('/hoy') }}
       />
     )
@@ -277,12 +309,14 @@ export default function SesionPage() {
           routine: activeRoutine.id,
           day: diaHoy.day.id,
           date: fecha,
+          time_start: hhmmss(new Date(progreso.horaInicio)),
+          time_end: hhmmss(new Date()),
         })
         sesionId = sesion.id
         setProgreso((p) => (p ? { ...p, sesionId } : p))
       }
 
-      const ahora = new Date().toISOString()
+      const fechaHoraFin = new Date().toISOString()
       for (let ei = 0; ei < progreso.ejercicios.length; ei++) {
         const ej = progreso.ejercicios[ei]
         for (let si = 0; si < ej.series.length; si++) {
@@ -297,7 +331,7 @@ export default function SesionPage() {
             repetitions: s.repeticiones || undefined,
             rir: s.rir || undefined,
             rest: s.descansoSeg || undefined,
-            date: ahora,
+            date: fechaHoraFin,
           })
           setProgreso((p) => {
             if (!p) return p
@@ -310,11 +344,11 @@ export default function SesionPage() {
           })
         }
       }
-      borrarProgreso(activeRoutine.id, fecha)
+      limpiarDraft.mutate()
       navigate('/entreno/historial')
     } catch {
       setError(
-        'No se ha podido guardar el entreno entero. Lo que ya se guardo no se repetira: pulsa Terminar otra vez para completar el resto.',
+        'No se ha podido guardar el entreno entero. Lo que ya se guardó no se repetirá: pulsa Terminar otra vez para completar el resto.',
       )
     } finally {
       setEnviando(false)
@@ -329,16 +363,25 @@ export default function SesionPage() {
             Ejercicio {idx + 1} de {totalEjercicios} · {seriesCompletadas}/{totalSeries} series
           </p>
           <h1 className="font-display text-4xl leading-tight">{nombre}</h1>
-          {mostrarMediaEjercicios && hayMedia ? (
-            <button
-              type="button"
-              onClick={() => setComoHacerloAbierto(true)}
-              className="mt-1 flex h-9 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-xs font-medium text-fg-muted transition-colors duration-150 hover:bg-surface-3 hover:text-fg"
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span
+              className="flex h-7 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-xs font-medium tnum text-fg-muted"
+              aria-label={`Tiempo de entreno: ${duration(segundosTranscurridos)}`}
             >
-              <Info size={14} aria-hidden="true" />
-              Como hacerlo
-            </button>
-          ) : null}
+              <Clock size={13} aria-hidden="true" />
+              {duration(segundosTranscurridos)}
+            </span>
+            {mostrarMediaEjercicios && hayMedia ? (
+              <button
+                type="button"
+                onClick={() => setComoHacerloAbierto(true)}
+                className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-xs font-medium text-fg-muted transition-colors duration-150 hover:bg-surface-3 hover:text-fg"
+              >
+                <Info size={14} aria-hidden="true" />
+                Cómo hacerlo
+              </button>
+            ) : null}
+          </div>
         </div>
         <Button
           variant="secondary"
@@ -413,7 +456,7 @@ export default function SesionPage() {
       {idx === totalEjercicios - 1 ? (
         <Card className="mt-2">
           <p className="text-sm text-fg-muted">
-            Es el ultimo ejercicio. Cuando termines las series, pulsa Terminar arriba para
+            Es el último ejercicio. Cuando termines las series, pulsa Terminar arriba para
             guardar el entreno.
           </p>
         </Card>
@@ -430,14 +473,14 @@ export default function SesionPage() {
       <Modal
         open={comoHacerloAbierto}
         onClose={() => setComoHacerloAbierto(false)}
-        title={`Como hacerlo: ${nombre}`}
+        title={`Cómo hacerlo: ${nombre}`}
       >
         {media.video ? (
           <video controls muted loop playsInline src={media.video} className="w-full rounded-[14px]" />
         ) : media.image ? (
-          <Thumbnail src={media.image} alt={`Como hacer: ${nombre}`} className="aspect-video" />
+          <Thumbnail src={media.image} alt={`Cómo hacer: ${nombre}`} className="aspect-video" />
         ) : (
-          <p className="text-sm text-fg-muted">No hay video ni imagen para este ejercicio todavia.</p>
+          <p className="text-sm text-fg-muted">No hay video ni imagen para este ejercicio todavía.</p>
         )}
       </Modal>
     </>

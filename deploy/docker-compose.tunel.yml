@@ -1,0 +1,63 @@
+# Overlay para llegar a la app desde fuera de casa (el gimnasio, el super)
+# sin abrir puertos en el router, sin IP publica y con HTTPS real -- que la
+# PWA lo necesita para que el service worker arranque (ver
+# docs/ACCESO-REMOTO.md, seccion 1).
+#
+# Cloudflare Tunnel hace una conexion DE SALIDA desde este contenedor hacia
+# Cloudflare: no hace falta redirigir ningun puerto en el router ni tener IP
+# publica, y funciona igual detras de un CGNAT.
+#
+# Se usa junto al compose principal, nunca solo:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.tunel.yml \
+#       --profile rapido up -d
+#
+#   docker compose -f docker-compose.yml -f docker-compose.tunel.yml \
+#       --profile nombrado up -d
+#
+# (o, si se prefiere no escribir --profile cada vez, exportando antes
+# COMPOSE_PROFILES=rapido / COMPOSE_PROFILES=nombrado)
+#
+# Hay dos modos, cada uno en su propio servicio con su propio "profile" de
+# docker compose -- asi se elige uno u otro sin editar este fichero:
+#
+#   rapido     Sin cuenta de Cloudflare. cloudflared abre un tunel efimero y
+#              Cloudflare le asigna una URL al azar, tipo
+#              https://algo-al-azar.trycloudflare.com, que sale escrita en
+#              sus logs (`docker compose logs -f tunel-rapido`). Cambia cada
+#              vez que se reinicia el contenedor. Sirve para probar hoy
+#              mismo, en cinco minutos.
+#
+#   nombrado   Con una cuenta de Cloudflare (gratis) y un tunel creado con
+#              nombre en el panel, la URL es siempre la misma: tu dominio o
+#              subdominio. Hace falta CLOUDFLARE_TUNNEL_TOKEN en el .env (se
+#              saca del panel, Zero Trust > Networks > Tunnels). Es el modo
+#              a usar para algo mas que una prueba puntual, y el unico que
+#              permite poner Cloudflare Access delante del login (ver
+#              docs/ACCESO-REMOTO.md, opcion A+).
+#
+# Los dos apuntan a "web" (nginx), nunca directamente a "api": asi lo que
+# llega por el tunel ve exactamente lo mismo que alguien en la red local, con
+# la PWA y la API detras del mismo origen.
+
+services:
+  tunel-rapido:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: ['rapido']
+    depends_on:
+      - web
+    # --no-autoupdate: en un contenedor no tiene sentido que se autoactualice
+    # y reinicie por su cuenta. --url monta el tunel efimero, sin cuenta.
+    command: tunnel --no-autoupdate --url http://web:80
+
+  tunel-nombrado:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: ['nombrado']
+    depends_on:
+      - web
+    # El token identifica el tunel con nombre creado en el panel de
+    # Cloudflare; ahi tambien se configura a que hostname publico responde y
+    # que servicio interno tiene detras, asi que aqui no hace falta --url.
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}

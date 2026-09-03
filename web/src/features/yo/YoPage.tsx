@@ -11,7 +11,22 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Camera, Download, LogOut, Plus, Ruler, Scale, Trash2 } from 'lucide-react'
+import {
+  Camera,
+  CalendarDays,
+  Check,
+  Download,
+  LogOut,
+  Pencil,
+  Plus,
+  Ruler,
+  Scale,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Upload,
+  X,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { CLAVE_IDIOMA, IDIOMAS_DISPONIBLES } from '../../i18n'
@@ -22,13 +37,16 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  HeroStat,
   PageTitle,
+  Pill,
   SectionLabel,
   SkeletonList,
-  StatCard,
   Thumbnail,
 } from '../../components/ui'
+import { Footer } from '../../components/Footer'
 import { int, kg, num, shortDate, today } from '../../lib/format'
+import { api, ApiError } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 import { useAjustes } from '../../lib/settings'
 import {
@@ -43,26 +61,28 @@ import {
   useCreateMeasurement,
   useCreateMeasurementCategory,
   useDeleteGalleryPhoto,
+  useDeleteWeightEntry,
   useExerciseNames,
   useGalleryPhotos,
   useMeasurementCategories,
   useMeasurements,
   useUpdateUserProfile,
+  useUpdateWeightEntry,
   useUploadGalleryPhoto,
   useUserProfile,
   useWeightEntries,
   useWorkoutLogs,
   useWorkoutSessions,
-  type UserProfilePatch,
-} from './api'
-import { BarraProgreso, SelectField, TabBar, ToggleField, type TabId } from './components'
-import {
-  guardarObjetivo,
   leerObjetivo,
   TIPOS_OBJETIVO,
+  useGuardarObjetivo,
+  useObjetivo,
   type Objetivo,
   type TipoObjetivo,
-} from './objetivo'
+  type UserProfilePatch,
+  type WeightEntry,
+} from './api'
+import { BarraProgreso, SelectField, TabBar, ToggleField, type TabId } from './components'
 import {
   calcularEdad,
   calcularIMC,
@@ -75,7 +95,6 @@ import {
   mediaMovil7,
   pesoActualConDelta,
   ritmoSemanalNecesario,
-  type ColorClasificacion,
   type PuntoPeso,
   type Rango,
 } from './utils'
@@ -93,16 +112,6 @@ const tooltipStyle = {
   color: 'var(--color-fg)',
 }
 
-// Clases estaticas: Tailwind no detecta clases construidas con template
-// literals, asi que el color de la clasificacion del IMC sale de un mapa
-// fijo con las cuatro variantes escritas literalmente.
-const imcColorClass: Record<ColorClasificacion, string> = {
-  accent: 'text-accent',
-  success: 'text-success',
-  warning: 'text-warning',
-  danger: 'text-danger',
-}
-
 const CATEGORIAS_HABITUALES = [
   { name: 'Cintura', unit: 'cm' },
   { name: 'Cadera', unit: 'cm' },
@@ -118,17 +127,37 @@ const OTRO_SUPERMERCADO = 'Otro'
 
 // ------------------------------------------------------------------ Perfil
 
+const OBJETIVO_VACIO: Objetivo = { peso: null, fecha: null, tipo: null }
+
 function PerfilTab() {
   const profileQ = useUserProfile()
   const updateProfile = useUpdateUserProfile()
   const pesoQ = useWeightEntries()
+  const objetivoQ = useObjetivo()
+  const guardarObjetivo = useGuardarObjetivo()
 
   const [form, setForm] = useState<UserProfilePatch | null>(null)
-  const [objetivo, setObjetivo] = useState<Objetivo>(() => leerObjetivo())
+  // Ultimo valor guardado de verdad (sembrado una vez, junto con `form`, y
+  // actualizado tras cada guardado), para saber si hay cambios sin guardar
+  // y mostrar la barra flotante solo entonces -- no en cada tecla.
+  const [formInicial, setFormInicial] = useState<UserProfilePatch | null>(null)
+  // Borrador local del objetivo: el usuario escribe aqui y se guarda con
+  // retardo (ver actualizarObjetivo), igual que `form` de arriba espera a
+  // que llegue el perfil del servidor antes de sembrarse. `objetivo` (sin
+  // sufijo) es la version no nula que usa el resto del componente: mientras
+  // el servidor no ha respondido todavia, se ve como un objetivo vacio, no
+  // como una pantalla de carga aparte.
+  const [objetivoDraft, setObjetivoDraft] = useState<Objetivo | null>(null)
+  const objetivo = objetivoDraft ?? OBJETIVO_VACIO
+  const temporizadorObjetivo = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (objetivoQ.data && objetivoDraft === null) setObjetivoDraft(objetivoQ.data)
+  }, [objetivoQ.data, objetivoDraft])
 
   useEffect(() => {
     if (profileQ.data && form === null) {
-      setForm({
+      const inicial = {
         birthdate: profileQ.data.birthdate,
         gender: profileQ.data.gender,
         height: profileQ.data.height,
@@ -137,7 +166,9 @@ function PerfilTab() {
         sport_intensity: profileQ.data.sport_intensity,
         freetime_intensity: profileQ.data.freetime_intensity,
         calories: profileQ.data.calories,
-      })
+      }
+      setForm(inicial)
+      setFormInicial(inicial)
     }
   }, [profileQ.data, form])
 
@@ -167,130 +198,117 @@ function PerfilTab() {
     return ritmoSemanalNecesario(pesoActual.actual, objetivo.peso, objetivo.fecha)
   }, [objetivo.peso, objetivo.fecha, pesoActual])
 
+  // Guardan siempre el ultimo valor, para que la limpieza del efecto de
+  // desmontaje de abajo no cierre sobre datos viejos (un array de
+  // dependencias vacio en ese efecto significaria que solo ve el `objetivo`
+  // y el `guardarObjetivo` del primer render). Se actualizan en un efecto,
+  // no durante el render: mutar un ref mientras se renderiza es lo que
+  // avisa oxlint que no hay que hacer.
+  const objetivoRef = useRef(objetivo)
+  const guardarObjetivoRef = useRef(guardarObjetivo)
+  useEffect(() => {
+    objetivoRef.current = objetivo
+    guardarObjetivoRef.current = guardarObjetivo
+  }, [objetivo, guardarObjetivo])
+
+  /**
+   * Actualiza el borrador al instante (para que escribir se sienta
+   * inmediato) y guarda en el servidor con 500ms de retardo: sin esto, cada
+   * digito escrito en "peso objetivo" mandaria una peticion suelta. Si el
+   * usuario sigue escribiendo, el temporizador anterior se cancela y
+   * empieza de nuevo.
+   */
   function actualizarObjetivo(patch: Partial<Objetivo>) {
     const nuevo = { ...objetivo, ...patch }
-    setObjetivo(nuevo)
-    guardarObjetivo(nuevo)
+    setObjetivoDraft(nuevo)
+    if (temporizadorObjetivo.current) clearTimeout(temporizadorObjetivo.current)
+    temporizadorObjetivo.current = setTimeout(() => {
+      guardarObjetivo.mutate(nuevo)
+    }, 500)
   }
+
+  // Si se desmonta con un guardado pendiente (cambia de pestana antes de que
+  // pasen los 500ms), lo manda ya en vez de perderlo.
+  useEffect(() => {
+    return () => {
+      if (temporizadorObjetivo.current) {
+        clearTimeout(temporizadorObjetivo.current)
+        guardarObjetivoRef.current.mutate(objetivoRef.current)
+      }
+    }
+  }, [])
 
   if (profileQ.isLoading || !form) return <SkeletonList rows={3} height="h-16" />
   if (profileQ.isError) {
     return <ErrorState message="No se ha podido cargar el perfil." onRetry={() => void profileQ.refetch()} />
   }
 
+  const dirty = formInicial !== null && JSON.stringify(form) !== JSON.stringify(formInicial)
+
+  function guardarPerfil() {
+    if (!form) return
+    const snapshot = form
+    updateProfile.mutate(snapshot, {
+      onSuccess: () => setFormInicial(snapshot),
+    })
+  }
+
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Edad" value={edad !== null ? int(edad) : '-'} unit="anos" accent="accent" />
-        <StatCard
-          label="Peso actual"
-          value={pesoActual ? num(pesoActual.actual) : '-'}
-          unit="kg"
-          delta={pesoActual?.delta7d ?? null}
-          invertDelta
-          accent="primary"
-        />
-      </div>
-
-      <Card>
-        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">IMC</p>
-        <div className="mt-1 flex items-baseline gap-3">
-          <p className="font-display text-5xl leading-none tnum">{imc !== null ? num(imc) : '-'}</p>
-          {clasificacion ? (
-            <span className={`text-sm font-semibold ${imcColorClass[clasificacion.color]}`}>
-              {clasificacion.etiqueta}
-            </span>
-          ) : (
-            <span className="text-sm text-fg-subtle">Falta peso o altura</span>
-          )}
+    <div className="animate-rise space-y-5">
+      <Card className="p-5">
+        <div className="lg:grid lg:grid-cols-[auto_minmax(0,1fr)] lg:items-end lg:gap-8">
+          <HeroStat label="Peso actual" value={pesoActual ? num(pesoActual.actual) : '-'} unit="kg" />
+          <div className="mt-3 flex flex-wrap items-center gap-2 lg:mt-0">
+            {pesoActual?.delta7d !== null && pesoActual?.delta7d !== undefined && pesoActual.delta7d !== 0 ? (
+              <Pill
+                icon={pesoActual.delta7d > 0 ? TrendingUp : TrendingDown}
+                tone={pesoActual.delta7d > 0 ? 'danger' : 'success'}
+              >
+                {pesoActual.delta7d > 0 ? '+' : ''}
+                {num(pesoActual.delta7d)} kg / 7d
+              </Pill>
+            ) : null}
+            <Pill tone={clasificacion ? clasificacion.color : 'neutral'}>
+              IMC {imc !== null ? num(imc) : '-'}
+              {clasificacion ? ` · ${clasificacion.etiqueta}` : ''}
+            </Pill>
+            {edad !== null ? <Pill>{int(edad)} años</Pill> : null}
+            {form.height ? <Pill>{form.height} cm</Pill> : null}
+          </div>
         </div>
       </Card>
 
       <Card>
-        <SectionLabel>Datos personales</SectionLabel>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field
-            label="Fecha de nacimiento"
-            type="date"
-            value={form.birthdate ?? ''}
-            onChange={(e) => setForm({ ...form, birthdate: e.target.value || null })}
-          />
-          <SelectField
-            label="Sexo"
-            value={form.gender}
-            onChange={(e) => setForm({ ...form, gender: e.target.value as '1' | '2' })}
-          >
-            <option value="1">Hombre</option>
-            <option value="2">Mujer</option>
-          </SelectField>
-          <Field
-            label="Altura"
-            type="number"
-            inputMode="decimal"
-            hint="cm"
-            value={form.height ?? ''}
-            onChange={(e) => setForm({ ...form, height: e.target.value ? Number(e.target.value) : null })}
-          />
-          <SelectField
-            label="Unidad de peso"
-            value={form.weight_unit}
-            onChange={(e) => setForm({ ...form, weight_unit: e.target.value as 'kg' | 'lb' })}
-          >
-            <option value="kg">Metrico (kg)</option>
-            <option value="lb">Imperial (lb)</option>
-          </SelectField>
-          <SelectField
-            label="Intensidad trabajo"
-            value={form.work_intensity}
-            onChange={(e) => setForm({ ...form, work_intensity: e.target.value as '1' | '2' | '3' })}
-          >
-            <option value="1">Baja</option>
-            <option value="2">Media</option>
-            <option value="3">Alta</option>
-          </SelectField>
-          <SelectField
-            label="Intensidad deporte"
-            value={form.sport_intensity}
-            onChange={(e) => setForm({ ...form, sport_intensity: e.target.value as '1' | '2' | '3' })}
-          >
-            <option value="1">Baja</option>
-            <option value="2">Media</option>
-            <option value="3">Alta</option>
-          </SelectField>
-          <SelectField
-            label="Intensidad tiempo libre"
-            value={form.freetime_intensity}
-            onChange={(e) => setForm({ ...form, freetime_intensity: e.target.value as '1' | '2' | '3' })}
-          >
-            <option value="1">Baja</option>
-            <option value="2">Media</option>
-            <option value="3">Alta</option>
-          </SelectField>
-          <Field
-            label="Calorias objetivo"
-            type="number"
-            inputMode="numeric"
-            value={form.calories ?? ''}
-            onChange={(e) => setForm({ ...form, calories: e.target.value ? Number(e.target.value) : 0 })}
-          />
+        <div className="flex items-center justify-between gap-3">
+          <SectionLabel>Objetivo de peso</SectionLabel>
+          {objetivo.peso !== null ? (
+            <p className="font-display text-3xl leading-none tnum">
+              {num(objetivo.peso)}
+              <span className="ml-1 text-base text-fg-muted">kg</span>
+            </p>
+          ) : null}
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
-          <Button
-            type="button"
-            onClick={() => updateProfile.mutate(form)}
-            disabled={updateProfile.isPending}
-          >
-            {updateProfile.isPending ? 'Guardando...' : 'Guardar cambios'}
-          </Button>
-          {updateProfile.isSuccess ? <span className="text-sm text-success">Guardado</span> : null}
-          {updateProfile.isError ? <span className="text-sm text-danger">Error al guardar</span> : null}
-        </div>
-      </Card>
+        {progresoObjetivo !== null && objetivo.peso !== null && pesoActual ? (
+          <div className="mt-3">
+            <BarraProgreso
+              porcentaje={progresoObjetivo}
+              etiqueta={`${num(pesoActual.actual)} kg de ${num(objetivo.peso)} kg objetivo (${progresoObjetivo}%)`}
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {ritmo !== null ? (
+                <Pill>
+                  Ritmo: {ritmo > 0 ? '+' : ''}
+                  {num(ritmo)} kg/semana
+                </Pill>
+              ) : null}
+              {objetivo.fecha ? <Pill icon={CalendarDays}>Para el {shortDate(objetivo.fecha)}</Pill> : null}
+              <Pill>Faltan {num(Math.abs(objetivo.peso - pesoActual.actual))} kg</Pill>
+            </div>
+          </div>
+        ) : null}
 
-      <Card>
-        <SectionLabel>Objetivo de peso</SectionLabel>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field
             label="Peso objetivo"
             type="number"
@@ -320,31 +338,206 @@ function PerfilTab() {
             ))}
           </SelectField>
         </div>
-
-        {progresoObjetivo !== null && objetivo.peso !== null && pesoActual ? (
-          <div className="mt-4">
-            <BarraProgreso
-              porcentaje={progresoObjetivo}
-              etiqueta={`${num(pesoActual.actual)} kg de ${num(objetivo.peso)} kg objetivo (${progresoObjetivo}%)`}
-            />
-            {ritmo !== null ? (
-              <p className="mt-2 text-sm text-fg-muted tnum">
-                Ritmo necesario: {ritmo > 0 ? '+' : ''}
-                {num(ritmo)} kg/semana
-              </p>
-            ) : null}
-          </div>
-        ) : null}
       </Card>
+
+      <Card>
+        <SectionLabel>Sobre ti</SectionLabel>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field
+            label="Fecha de nacimiento"
+            type="date"
+            value={form.birthdate ?? ''}
+            onChange={(e) => setForm({ ...form, birthdate: e.target.value || null })}
+          />
+          <SelectField
+            label="Sexo"
+            value={form.gender}
+            onChange={(e) => setForm({ ...form, gender: e.target.value as '1' | '2' })}
+          >
+            <option value="1">Hombre</option>
+            <option value="2">Mujer</option>
+          </SelectField>
+          <Field
+            label="Altura"
+            type="number"
+            inputMode="decimal"
+            hint="cm"
+            value={form.height ?? ''}
+            onChange={(e) => setForm({ ...form, height: e.target.value ? Number(e.target.value) : null })}
+          />
+          <SelectField
+            label="Unidad de peso"
+            value={form.weight_unit}
+            onChange={(e) => setForm({ ...form, weight_unit: e.target.value as 'kg' | 'lb' })}
+          >
+            <option value="kg">Métrico (kg)</option>
+            <option value="lb">Imperial (lb)</option>
+          </SelectField>
+        </div>
+
+        <div className="mt-4 border-t border-border pt-4">
+          <SectionLabel>Actividad</SectionLabel>
+          <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <SelectField
+              label="Intensidad trabajo"
+              value={form.work_intensity}
+              onChange={(e) => setForm({ ...form, work_intensity: e.target.value as '1' | '2' | '3' })}
+            >
+              <option value="1">Baja</option>
+              <option value="2">Media</option>
+              <option value="3">Alta</option>
+            </SelectField>
+            <SelectField
+              label="Intensidad deporte"
+              value={form.sport_intensity}
+              onChange={(e) => setForm({ ...form, sport_intensity: e.target.value as '1' | '2' | '3' })}
+            >
+              <option value="1">Baja</option>
+              <option value="2">Media</option>
+              <option value="3">Alta</option>
+            </SelectField>
+            <SelectField
+              label="Intensidad tiempo libre"
+              value={form.freetime_intensity}
+              onChange={(e) => setForm({ ...form, freetime_intensity: e.target.value as '1' | '2' | '3' })}
+            >
+              <option value="1">Baja</option>
+              <option value="2">Media</option>
+              <option value="3">Alta</option>
+            </SelectField>
+          </div>
+          <Field
+            label="Calorías objetivo"
+            type="number"
+            inputMode="numeric"
+            className="mt-4"
+            value={form.calories ?? ''}
+            onChange={(e) => setForm({ ...form, calories: e.target.value ? Number(e.target.value) : 0 })}
+          />
+        </div>
+      </Card>
+
+      {dirty ? (
+        <div className="glass fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 border-t border-border px-4 py-3 lg:bottom-0">
+          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+            <span className="text-sm text-fg-muted">Cambios sin guardar</span>
+            <div className="flex items-center gap-3">
+              {updateProfile.isError ? <span className="text-sm text-danger">Error al guardar</span> : null}
+              <Button size="sm" onClick={guardarPerfil} disabled={updateProfile.isPending}>
+                {updateProfile.isPending ? 'Guardando...' : 'Guardar cambios'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
 
 // ----------------------------------------------------------------- Progreso
 
+/** Una fila del historial de peso: fecha y valor, editables in situ, o borrado con confirmación aparte. */
+function FilaPeso({
+  entrada,
+  onGuardar,
+  onEliminar,
+}: {
+  entrada: WeightEntry
+  onGuardar: (cambios: { date: string; weight: number }) => void
+  onEliminar: () => void
+}) {
+  const [editando, setEditando] = useState(false)
+  // Solo se rellenan al entrar en edicion (ver empezarEdicion): en modo
+  // vista se lee siempre `entrada` directamente, asi que no hace falta un
+  // efecto que las mantenga sincronizadas con datos que aqui no se pintan.
+  const [peso, setPeso] = useState('')
+  const [fecha, setFecha] = useState('')
+
+  function empezarEdicion() {
+    setPeso(entrada.weight)
+    setFecha(entrada.date)
+    setEditando(true)
+  }
+
+  if (editando) {
+    const valorValido = Number(peso) > 0 && fecha !== ''
+    return (
+      <li className="flex flex-wrap items-center gap-2 rounded-[14px] bg-surface-2 px-3 py-2">
+        <input
+          type="date"
+          className="h-10 min-w-0 rounded-[10px] border border-border bg-surface px-2 text-sm text-fg transition-colors focus:border-primary"
+          value={fecha}
+          onChange={(e) => setFecha(e.target.value)}
+        />
+        <input
+          type="number"
+          inputMode="decimal"
+          step="0.1"
+          className="h-10 w-20 min-w-0 rounded-[10px] border border-border bg-surface px-2 text-sm text-fg transition-colors focus:border-primary"
+          value={peso}
+          onChange={(e) => setPeso(e.target.value)}
+        />
+        <span className="text-xs text-fg-subtle">kg</span>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className="rounded-[10px] p-2 text-primary transition-colors duration-150 hover:bg-surface-3 disabled:opacity-40"
+            aria-label="Guardar pesaje"
+            disabled={!valorValido}
+            onClick={() => {
+              onGuardar({ date: fecha, weight: Number(peso) })
+              setEditando(false)
+            }}
+          >
+            <Check size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3"
+            aria-label="Cancelar edición"
+            onClick={() => setEditando(false)}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      </li>
+    )
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-[14px] bg-surface-2 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="tnum text-sm text-fg">{num(Number(entrada.weight))} kg</p>
+        <p className="text-xs capitalize text-fg-subtle">{shortDate(entrada.date)}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-fg"
+          aria-label="Editar pesaje"
+          onClick={empezarEdicion}
+        >
+          <Pencil size={16} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-danger"
+          aria-label="Eliminar pesaje"
+          onClick={onEliminar}
+        >
+          <Trash2 size={16} aria-hidden="true" />
+        </button>
+      </div>
+    </li>
+  )
+}
+
 function ProgresoTab() {
   const pesoQ = useWeightEntries()
   const addPeso = useAddWeightEntry()
+  const actualizarPeso = useUpdateWeightEntry()
+  const eliminarPeso = useDeleteWeightEntry()
+  const [entradaAEliminar, setEntradaAEliminar] = useState<WeightEntry | null>(null)
   const sesionesQ = useWorkoutSessions()
   const logsQ = useWorkoutLogs()
 
@@ -357,6 +550,11 @@ function ProgresoTab() {
     const puntos: PuntoPeso[] = pesoQ.data.map((e) => ({ fecha: e.date, peso: Number(e.weight) }))
     return cortarPorRango(mediaMovil7(puntos), rango)
   }, [pesoQ.data, rango])
+
+  const entradasOrdenadas = useMemo(
+    () => [...(pesoQ.data ?? [])].sort((a, b) => b.date.localeCompare(a.date)),
+    [pesoQ.data],
+  )
 
   const sesionesPorSemana = useMemo(
     () => calcularSesionesSemanales(sesionesQ.data ?? []),
@@ -402,8 +600,8 @@ function ProgresoTab() {
         {pesoQ.data && datosPeso.length === 0 ? (
           <EmptyState
             icon={Scale}
-            title="Sin pesajes todavia"
-            description="Anade tu primer peso para empezar a ver la evolucion."
+            title="Sin pesajes todavía"
+            description="Añade tu primer peso para empezar a ver la evolución."
           />
         ) : null}
 
@@ -441,7 +639,7 @@ function ProgresoTab() {
                 <Line
                   type="monotone"
                   dataKey="media"
-                  name="Media 7 dias"
+                  name="Media 7 días"
                   stroke={COLORES_GRAFICA[0]}
                   strokeWidth={2.5}
                   dot={false}
@@ -471,10 +669,29 @@ function ProgresoTab() {
           />
           <Button type="submit" disabled={addPeso.isPending}>
             <Plus size={18} aria-hidden="true" />
-            {addPeso.isPending ? 'Anadiendo...' : 'Anadir peso'}
+            {addPeso.isPending ? 'Añadiendo...' : 'Añadir peso'}
           </Button>
         </form>
       </Card>
+
+      {entradasOrdenadas.length > 0 ? (
+        <Card>
+          <SectionLabel>Historial de peso</SectionLabel>
+          <ul className="max-h-72 space-y-2 overflow-y-auto">
+            {entradasOrdenadas.map((entrada) => (
+              <FilaPeso
+                key={entrada.id}
+                entrada={entrada}
+                onGuardar={(cambios) => actualizarPeso.mutate({ id: entrada.id, ...cambios })}
+                onEliminar={() => setEntradaAEliminar(entrada)}
+              />
+            ))}
+          </ul>
+          {actualizarPeso.isError ? (
+            <p className="mt-2 text-sm text-danger">No se pudo guardar el cambio. Inténtalo de nuevo.</p>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Card>
         <SectionLabel>Entrenamientos por semana</SectionLabel>
@@ -502,7 +719,7 @@ function ProgresoTab() {
             </ResponsiveContainer>
           </div>
         ) : sesionesQ.data ? (
-          <p className="py-8 text-center text-sm text-fg-muted">Sin sesiones registradas todavia.</p>
+          <p className="py-8 text-center text-sm text-fg-muted">Sin sesiones registradas todavía.</p>
         ) : null}
       </Card>
 
@@ -532,14 +749,14 @@ function ProgresoTab() {
             </ResponsiveContainer>
           </div>
         ) : logsQ.data ? (
-          <p className="py-8 text-center text-sm text-fg-muted">Sin series con peso registradas todavia.</p>
+          <p className="py-8 text-center text-sm text-fg-muted">Sin series con peso registradas todavía.</p>
         ) : null}
       </Card>
 
       <Card>
         <SectionLabel>Records personales</SectionLabel>
         {records.length === 0 ? (
-          <p className="py-8 text-center text-sm text-fg-muted">Todavia no hay series con peso registradas.</p>
+          <p className="py-8 text-center text-sm text-fg-muted">Todavía no hay series con peso registradas.</p>
         ) : (
           <ul className="space-y-2">
             {records.map((r) => (
@@ -560,6 +777,21 @@ function ProgresoTab() {
       </Card>
 
       <FotosProgreso />
+
+      <ConfirmModal
+        open={entradaAEliminar !== null}
+        onClose={() => setEntradaAEliminar(null)}
+        onConfirm={() => {
+          if (entradaAEliminar) eliminarPeso.mutate(entradaAEliminar.id)
+        }}
+        title="Eliminar pesaje"
+        description={
+          entradaAEliminar
+            ? `Se borra el pesaje de ${num(Number(entradaAEliminar.weight))} kg del ${shortDate(entradaAEliminar.date)}. No se puede deshacer.`
+            : ''
+        }
+        confirmLabel="Eliminar"
+      />
     </div>
   )
 }
@@ -616,14 +848,14 @@ function FotosProgreso() {
         <ErrorState message="No se han podido cargar las fotos." onRetry={() => void fotosQ.refetch()} />
       ) : null}
       {subirFoto.isError ? (
-        <p className="mt-3 text-sm text-danger">No se ha podido subir la foto. Intentalo de nuevo.</p>
+        <p className="mt-3 text-sm text-danger">No se ha podido subir la foto. Inténtalo de nuevo.</p>
       ) : null}
 
       {fotosQ.data && fotosOrdenadas.length === 0 ? (
         <EmptyState
           icon={Camera}
-          title="Sin fotos todavia"
-          description="Sube tu primera foto de progreso para poder comparar mas adelante."
+          title="Sin fotos todavía"
+          description="Sube tu primera foto de progreso para poder comparar más adelante."
           action={{ label: 'Subir foto', onClick: () => inputRef.current?.click() }}
         />
       ) : null}
@@ -657,7 +889,7 @@ function FotosProgreso() {
           if (fotoABorrar !== null) borrarFoto.mutate(fotoABorrar)
         }}
         title="Eliminar foto"
-        description="Esta foto se borrara permanentemente."
+        description="Esta foto se borrará permanentemente."
       />
     </Card>
   )
@@ -731,8 +963,8 @@ function MedidasTab() {
     return (
       <EmptyState
         icon={Ruler}
-        title="Sin categorias de medidas"
-        description="Crea las categorias habituales (cintura, cadera, pecho, brazo, muslo) para empezar a registrar."
+        title="Sin categorías de medidas"
+        description="Crea las categorías habituales (cintura, cadera, pecho, brazo, muslo) para empezar a registrar."
         action={{
           label: creandoHabituales ? 'Creando...' : 'Crear habituales',
           onClick: () => void crearHabituales(),
@@ -744,7 +976,7 @@ function MedidasTab() {
   return (
     <div className="space-y-5">
       <Card>
-        <SectionLabel>Categorias</SectionLabel>
+        <SectionLabel>Categorías</SectionLabel>
         <div className="flex flex-wrap gap-2">
           {(categoriasQ.data ?? []).map((c) => (
             <Button
@@ -761,7 +993,7 @@ function MedidasTab() {
 
         <form onSubmit={onCrearCategoria} className="mt-4 flex flex-wrap items-end gap-3">
           <Field
-            label="Nueva categoria"
+            label="Nueva categoría"
             placeholder="p.ej. Cuello"
             value={nombreNueva}
             onChange={(e) => setNombreNueva(e.target.value)}
@@ -788,7 +1020,7 @@ function MedidasTab() {
           {medicionesQ.isLoading ? <SkeletonList rows={1} height="h-56" /> : null}
 
           {medicionesCategoria.length === 0 && medicionesQ.data ? (
-            <p className="py-8 text-center text-sm text-fg-muted">Sin valores registrados todavia.</p>
+            <p className="py-8 text-center text-sm text-fg-muted">Sin valores registrados todavía.</p>
           ) : null}
 
           {medicionesCategoria.length > 0 ? (
@@ -881,11 +1113,11 @@ function TarjetaServidor() {
     <Card>
       <SectionLabel>Servidor</SectionLabel>
       <p className="text-sm text-fg-muted">
-        La direccion de tu servidor de SalazFitness. Dejalo en blanco si abres la app desde el
+        La dirección de tu servidor de SalazFitness. Déjalo en blanco si abres la app desde el
         navegador: entonces usa el mismo sitio desde el que se ha cargado.
       </p>
       <Field
-        label="Direccion"
+        label="Dirección"
         placeholder={SERVIDOR_POR_DEFECTO || 'https://salazfitness.tudominio.com'}
         value={valor}
         inputMode="url"
@@ -904,11 +1136,25 @@ function TarjetaServidor() {
       </Button>
       {guardado ? (
         <p className="mt-3 text-sm text-success">
-          Guardado{normalizado ? `: ${normalizado}` : ' (se usara el servidor por defecto)'}.
+          Guardado{normalizado ? `: ${normalizado}` : ' (se usará el servidor por defecto)'}.
         </p>
       ) : null}
     </Card>
   )
+}
+
+type InformeImportacion = {
+  creados: Record<string, number>
+  omitidos: Record<string, number>
+  fallos: string[]
+}
+
+function mensajeDeErrorExportacion(err: unknown): string {
+  if (err instanceof ApiError) {
+    const detalle = (err.body as { detail?: string } | null)?.detail
+    return detalle ?? err.message
+  }
+  return err instanceof Error ? err.message : 'Algo ha ido mal.'
 }
 
 function AjustesTab() {
@@ -936,21 +1182,70 @@ function AjustesTab() {
     localStorage.setItem(CLAVE_IDIOMA, codigo)
   }
 
-  function exportarDatos() {
-    const datos = {
-      exportadoEl: new Date().toISOString(),
-      perfil: profileQ.data ?? null,
-      objetivo: leerObjetivo(),
-    }
+  function descargarJson(datos: unknown, nombre: string) {
     const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const enlace = document.createElement('a')
     enlace.href = url
-    enlace.download = `salazfitness-datos-${today()}.json`
+    enlace.download = nombre
     document.body.appendChild(enlace)
     enlace.click()
     document.body.removeChild(enlace)
     URL.revokeObjectURL(url)
+  }
+
+  async function exportarDatos() {
+    const datos = {
+      exportadoEl: new Date().toISOString(),
+      perfil: profileQ.data ?? null,
+      // El objetivo ya no es una lectura sincrona de localStorage: viene del
+      // servidor (ver useObjetivo/leerObjetivo en yo/api.ts).
+      objetivo: await leerObjetivo(),
+    }
+    descargarJson(datos, `salazfitness-datos-${today()}.json`)
+  }
+
+  const [exportandoTodo, setExportandoTodo] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const [informeImportacion, setInformeImportacion] = useState<InformeImportacion | null>(null)
+  const [errorImportacion, setErrorImportacion] = useState<string | null>(null)
+  const inputArchivoRef = useRef<HTMLInputElement>(null)
+
+  async function exportarTodo() {
+    setExportandoTodo(true)
+    try {
+      const datos = await api.get('/api/v2/salaz/account/exportar-todo/')
+      descargarJson(datos, `salazfitness-exportacion-${today()}.json`)
+    } catch (err) {
+      setErrorImportacion(mensajeDeErrorExportacion(err))
+    } finally {
+      setExportandoTodo(false)
+    }
+  }
+
+  async function onArchivoSeleccionado(e: ChangeEvent<HTMLInputElement>) {
+    const archivo = e.target.files?.[0]
+    e.target.value = '' // para poder volver a elegir el mismo fichero si hace falta reintentar
+    if (!archivo) return
+
+    setErrorImportacion(null)
+    setInformeImportacion(null)
+    setImportando(true)
+    try {
+      const texto = await archivo.text()
+      let datos: unknown
+      try {
+        datos = JSON.parse(texto)
+      } catch {
+        throw new Error('Ese fichero no es un JSON valido. Tiene que ser uno exportado desde aqui mismo.')
+      }
+      const informe = await api.post<InformeImportacion>('/api/v2/salaz/account/importar-todo/', datos)
+      setInformeImportacion(informe)
+    } catch (err) {
+      setErrorImportacion(mensajeDeErrorExportacion(err))
+    } finally {
+      setImportando(false)
+    }
   }
 
   return (
@@ -1022,6 +1317,80 @@ function AjustesTab() {
           {t('ajustes.datos.exportar')}
         </Button>
       </Card>
+
+      <Card>
+        <SectionLabel>Copia completa (entreno, nutrición, compra, peso y perfil)</SectionLabel>
+        <p className="text-sm text-fg-muted">
+          Descarga un único fichero con todo el contenido de esta cuenta. Sirve para llevarlo a otra
+          instalación (por ejemplo, de tu servidor local a este) sin tener que rellenarlo todo a mano: lo
+          exportas aquí, y en la otra cuenta lo importas más abajo con ese mismo fichero.
+        </p>
+        <Button type="button" variant="secondary" className="mt-4" onClick={exportarTodo} disabled={exportandoTodo}>
+          <Download size={18} aria-hidden="true" />
+          {exportandoTodo ? 'Exportando…' : 'Exportar todo'}
+        </Button>
+
+        <div className="mt-5 border-t border-border pt-4">
+          <p className="text-sm text-fg-muted">
+            Importa un fichero exportado desde aquí mismo (de esta cuenta o de otra). Cada ejercicio y cada
+            alimento se busca por nombre antes de escribirse: si alguno no se encuentra, se avisa abajo en
+            vez de dejarlo mal puesto.
+          </p>
+          <input
+            ref={inputArchivoRef}
+            type="file"
+            accept="application/json"
+            hidden
+            onChange={(e) => void onArchivoSeleccionado(e)}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-4"
+            onClick={() => inputArchivoRef.current?.click()}
+            disabled={importando}
+          >
+            <Upload size={18} aria-hidden="true" />
+            {importando ? 'Importando…' : 'Importar desde un fichero'}
+          </Button>
+
+          {errorImportacion ? <p className="mt-3 text-sm text-danger">{errorImportacion}</p> : null}
+
+          {informeImportacion ? (
+            <div className="mt-4 space-y-2 text-sm">
+              {Object.entries(informeImportacion.creados).map(([que, n]) => (
+                <p key={`creado-${que}`} className="text-success">
+                  Creado(s): {n} {que}
+                </p>
+              ))}
+              {Object.entries(informeImportacion.omitidos).map(([que, n]) => (
+                <p key={`omitido-${que}`} className="text-fg-muted">
+                  Omitido(s) (ya existían): {n} {que}
+                </p>
+              ))}
+              {informeImportacion.fallos.length > 0 ? (
+                <div className="text-danger">
+                  <p>{informeImportacion.fallos.length} fila(s) no se han podido importar:</p>
+                  <ul className="ml-4 list-disc">
+                    {informeImportacion.fallos.map((fallo, i) => (
+                      <li key={i}>{fallo}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {Object.keys(informeImportacion.creados).length === 0 &&
+              Object.keys(informeImportacion.omitidos).length === 0 &&
+              informeImportacion.fallos.length === 0 ? (
+                <p className="text-fg-muted">El fichero no tenía nada que importar.</p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </Card>
+
+      {/* La atribucion a wger solo se enseña aqui dentro de la app (y en
+          login/registro, ver components/Footer.tsx) -- no en cada pantalla. */}
+      <Footer />
     </div>
   )
 }

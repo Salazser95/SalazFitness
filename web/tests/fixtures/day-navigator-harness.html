@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Arnes de pruebas: DayNavigator</title>
+    <link rel="stylesheet" href="/src/styles/theme.css" />
+  </head>
+  <body>
+    <!--
+      Pagina SOLO para las pruebas de Playwright de
+      web/tests/day-navigator.spec.ts. No es parte de la app: no la sirve
+      App.tsx, no tiene enlace desde ningun sitio, y `vite build` de
+      produccion no la incluye (no aparece en ningun <script> de
+      web/index.html). Monta el componente REAL de
+      src/components/DayNavigator.tsx.
+    -->
+    <div id="root"></div>
+    <script type="module" src="./day-navigator-harness.tsx"></script>
+  </body>
+</html>

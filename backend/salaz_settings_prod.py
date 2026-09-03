@@ -54,6 +54,13 @@ if not SECRET_KEY:
     raise RuntimeError('Falta SALAZ_SECRET_KEY. Ver docs/DESPLIEGUE.md.')
 
 ALLOWED_HOSTS = _lista('SALAZ_ALLOWED_HOSTS') or ['localhost', '127.0.0.1']
+# Django ya entiende un valor que empieza por punto como comodin de
+# subdominio (".trycloudflare.com" acepta cualquier-cosa.trycloudflare.com),
+# no hace falta tocar nada aqui para que funcione: es lo que permite usar el
+# modo rapido del tunel de Cloudflare, cuya URL cambia cada vez que se
+# reinicia, sin tener que editar SALAZ_ALLOWED_HOSTS en cada prueba. Aceptalo
+# solo mientras pruebas: deja pasar cualquier tunel rapido, no solo el tuyo.
+# Ver deploy/.env.example y docs/ACCESO-REMOTO.md.
 
 # Donde vive la app. Es lo que se pone en el enlace del correo de verificacion
 # (ver salaz/api/cuentas.py) y tiene que ser la direccion que abre el usuario,
@@ -94,11 +101,26 @@ EMAIL_USE_SSL = _bool('SALAZ_EMAIL_SSL', False)
 DEFAULT_FROM_EMAIL = _env('SALAZ_EMAIL_FROM', 'SalazFitness <no-reply@localhost>')
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
+# Valvula de escape para probar en local (ver docs/ACCESO-REMOTO.md): con
+# SALAZ_EMAIL_CONSOLA=1 los correos no se envian, se imprimen en los logs del
+# contenedor. Sirve para levantar la app sin tener credenciales SMTP a mano y
+# entrar con el usuario de prueba (SALAZ_CREAR_USUARIO_PRUEBA), que no pasa
+# por la verificacion.
+#
+# Es SOLO para pruebas: con esto, cualquiera que se registre no recibira su
+# correo de confirmacion y no podra entrar. Para uso de verdad, SMTP.
+EMAIL_CONSOLA = _bool('SALAZ_EMAIL_CONSOLA', False)
+if EMAIL_CONSOLA:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
 # Sin SMTP configurado no se puede verificar a nadie, y una cuenta que no se
 # puede verificar es una cuenta que no puede entrar. Mejor fallar al arrancar
 # que descubrirlo con el primer registro.
-if not EMAIL_HOST:
-    raise RuntimeError('Falta SALAZ_EMAIL_HOST: sin correo no hay verificacion de cuentas.')
+if not EMAIL_HOST and not EMAIL_CONSOLA:
+    raise RuntimeError(
+        'Falta SALAZ_EMAIL_HOST: sin correo no hay verificacion de cuentas. '
+        'Para una prueba local sin SMTP, pon SALAZ_EMAIL_CONSOLA=1.'
+    )
 
 # ------------------------------------------------------------------- wger
 
@@ -110,12 +132,85 @@ WGER_SETTINGS['ALLOW_UPLOAD_VIDEOS'] = True
 WGER_SETTINGS['USE_CELERY'] = False
 WGER_SETTINGS['EMAIL_FROM'] = DEFAULT_FROM_EMAIL
 
+# --------------------------------------------------------------------- JWT
+#
+# La app (web/src/lib/api.ts) entra por la API "headless" de allauth, que
+# firma sus tokens en RS256 con una clave RSA propia -- no con SALAZ_SECRET_KEY.
+# wger trae el mecanismo (settings_global.jwk_b64_to_pem, mas el comando
+# `manage.py generate-jwt-keys`) pero solo lo conecta en settings/main.py, que
+# aqui no se usa (se parte de settings_global directamente, ver cabecera del
+# fichero). Sin esto conectado, SIMPLE_JWT['SIGNING_KEY'] y
+# HEADLESS_JWT_PRIVATE_KEY quedan sin valor y el login de la app falla siempre
+# con un 500 al intentar firmar el token -- con el usuario y la contrasena
+# perfectamente correctos. Es justo lo que paso la primera vez: la app
+# ensenaba "usuario o contrasena incorrectos" porque el frontend usa ese texto
+# de repuesto para cualquier fallo, cuando el fallo real era este.
+#
+# Con JWT_PRIVATE_KEY/JWT_PUBLIC_KEY sin poner, se genera aqui una pareja RSA
+# nueva. Esto es solo un ultimo recurso para cuando algo importa este modulo
+# de ajustes sin pasar por deploy/arrancar.sh (por ejemplo, un `manage.py`
+# suelto): en el arranque normal del contenedor, arrancar.sh YA genera y
+# exporta estas dos variables antes de lanzar gunicorn, precisamente para que
+# los tres workers compartan la MISMA clave -- si cada worker generase la
+# suya (como pasaba antes de ese paso en arrancar.sh, porque cada uno importa
+# este fichero por su cuenta, sin --preload), el login parecia funcionar un
+# instante y fallaba en la siguiente peticion si caia en otro worker, con la
+# sesion firmada por una clave que ese worker no reconocia.
+#
+# Para que las sesiones sobrevivan tambien a un reinicio del CONTENEDOR (y no
+# solo entre sus workers) hace falta una pareja fija de verdad, puesta en
+# deploy/.env. Se genera una vez con:
+#     docker compose exec api python manage.py generate-jwt-keys
+# y se copian las dos lineas que imprime (JWT_PRIVATE_KEY=... y
+# JWT_PUBLIC_KEY=...) tal cual a deploy/.env.
+_jwt_privada_b64 = _env('JWT_PRIVATE_KEY')
+_jwt_publica_b64 = _env('JWT_PUBLIC_KEY')
+
+if _jwt_privada_b64 and _jwt_publica_b64:
+    JWT_PRIVATE_KEY = jwk_b64_to_pem(_jwt_privada_b64)
+    JWT_PUBLIC_KEY = jwk_b64_to_pem(_jwt_publica_b64)
+else:
+    print(
+        'AVISO: JWT_PRIVATE_KEY/JWT_PUBLIC_KEY no estan puestas. Se genera una '
+        'clave RSA nueva para esta ejecucion: las sesiones no sobreviven a un '
+        'reinicio del contenedor. Ver el comentario de JWT en salaz_settings_prod.py.'
+    )
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+    _clave_efimera = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    JWT_PRIVATE_KEY = _clave_efimera.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    JWT_PUBLIC_KEY = _clave_efimera.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+
+SIMPLE_JWT['SIGNING_KEY'] = JWT_PRIVATE_KEY
+SIMPLE_JWT['VERIFYING_KEY'] = JWT_PUBLIC_KEY
+HEADLESS_JWT_PRIVATE_KEY = JWT_PRIVATE_KEY
+
 # --------------------------------------------------------------- seguridad
 
 CSRF_TRUSTED_ORIGINS = _lista('SALAZ_CSRF_ORIGINS') or [f'https://{h}' for h in ALLOWED_HOSTS]
 
-# El TLS lo termina nginx, asi que Django ve http y hay que decirle que mire la
-# cabecera que le pone el proxy. Sin esto, las redirecciones salen en http.
+# El TLS no lo termina Django: lo termina Cloudflare (con el tunel) o Caddy
+# (con un dominio propio), y nginx en medio habla http de puertas para
+# adentro. Por eso Django tiene que fiarse de la cabecera que le manda el
+# proxy en vez de mirar la conexion en la que llego. Sin esto, las
+# redirecciones a https saldrian siempre en http.
+#
+# El que esa cabecera diga la verdad depende de deploy/nginx.conf: ahi es
+# donde se respeta el X-Forwarded-Proto que ya trae la peticion en vez de
+# pisarlo con el "http" fijo con el que nginx ve su propia conexion (ver el
+# comentario grande al principio de ese fichero). Con eso en su sitio, no hay
+# riesgo de bucle de redirecciones al usar el tunel: la peticion le llega a
+# nginx por http interno, pero el X-Forwarded-Proto que reenvia a Django ya
+# dice "https", asi que SECURE_SSL_REDIRECT no vuelve a redirigir algo que ya
+# iba por https.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_SSL_REDIRECT = _bool('SALAZ_FORCE_HTTPS', True)
 SESSION_COOKIE_SECURE = True
@@ -126,6 +221,25 @@ X_FRAME_OPTIONS = 'DENY'
 
 # Bloqueo por intentos fallidos de login. En desarrollo estorba; aqui no.
 AXES_ENABLED = True
+
+# Sin esto, un error de servidor (500) no deja rastro: el LOGGING por defecto
+# de Django solo imprime a consola con DEBUG=True, y aqui DEBUG es siempre
+# False. Sin ADMINS configurado tampoco llega por correo. Resultado: un fallo
+# real no aparece en ningun sitio ("docker compose logs api" solo enseña la
+# linea de acceso con el 500, sin el traceback) -- nos paso de verdad
+# depurando el export/import de datos. Esto manda cualquier error de una
+# vista (django.request, nivel ERROR o peor) a la consola del contenedor.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler'},
+    },
+    'loggers': {
+        'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+        'salaz': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+    },
+}
 
 # ------------------------------------------------------------- ficheros
 

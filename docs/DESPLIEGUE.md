@@ -96,6 +96,13 @@ redirigirá a `https://` y no responderá nadie.
 
 Con HTTPS puesto, vuelve a poner `SALAZ_FORCE_HTTPS=1`.
 
+**¿Solo quieres probar la app desde el móvil, sin dominio propio ni
+certificado?** Esa es justo la situación que cubre
+[ACCESO-REMOTO.md](ACCESO-REMOTO.md): un túnel de Cloudflare que da HTTPS
+real en minutos, sin abrir puertos ni tener IP pública, dejando el portátil
+como servidor. Explica también por qué el HTTPS no es opcional (el service
+worker de la PWA) y cómo evitar que el portátil se suspenda.
+
 ### 5. Cargar los catálogos de wger
 
 Los ejercicios y los alimentos no vienen con la imagen; se descargan una vez:

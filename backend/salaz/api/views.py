@@ -1,37 +1,69 @@
+import json
+import time
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
+from django.db import close_old_connections, transaction
+from django.db.models import Q
+from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from salaz import frescura
+from salaz import frescura, tickets, tickets_vision
 from salaz.api.serializers import (
+    DeviceStateSerializer,
+    FavoriteIngredientSerializer,
     HouseholdMemberSerializer,
     HouseholdSerializer,
     IngredientPriceSerializer,
+    PantryItemSerializer,
     PurchaseItemSerializer,
     PurchaseSerializer,
+    ReceiptSerializer,
+    RecentIngredientSerializer,
     RecipeIngredientSerializer,
     RecipeSerializer,
     ShoppingListItemSerializer,
     ShoppingListSerializer,
+    WaterLogSerializer,
+    WeeklyPlanSerializer,
+    WeightGoalSerializer,
+    WorkoutDaySkipSerializer,
+    WorkoutRescheduleSerializer,
+    WorkoutSessionDraftSerializer,
 )
 from salaz.generador_lista import anadir_cesta, generar_lista, productos_del_plan
 from salaz.models import (
+    ChangeFeed,
+    DeviceState,
+    FavoriteIngredient,
     Household,
     HouseholdMember,
     IngredientPrice,
+    PantryItem,
     Purchase,
     PurchaseItem,
+    Receipt,
+    RecentIngredient,
     Recipe,
     RecipeIngredient,
     ShoppingList,
     ShoppingListItem,
+    WaterLog,
+    WeeklyPlan,
+    WeightGoal,
+    WorkoutDaySkip,
+    WorkoutReschedule,
+    WorkoutSessionDraft,
 )
+from salaz.models.recent_ingredient import MAX_RECIENTES
 from wger.nutrition.models import Ingredient, Meal, MealItem, NutritionPlan
 
 
@@ -59,8 +91,100 @@ def _flag(datos, clave: str, por_defecto: bool) -> bool:
     return str(valor).strip().lower() in ('1', 'true', 'yes', 'si', 'on')
 
 
+def _decimal_o_cero(valor) -> Decimal:
+    """
+    Un decimal del JSON del ticket, redondeado a dos cifras.
+
+    El parser puede dar tres decimales en los pesos ('0.760 kg'), y los
+    campos de PurchaseItem son de dos: sin cuantizar aqui, guardar depende
+    del motor de base de datos (unos redondean y otros truncan). Un valor
+    ilegible cuenta como cero en vez de reventar el volcado entero: el
+    usuario revisa las lineas antes de confirmar.
+    """
+    try:
+        return Decimal(str(valor)).quantize(Decimal('0.01'))
+    except (TypeError, ValueError, ArithmeticError):
+        return Decimal('0.00')
+
+
+User = get_user_model()
+
+#: Centinela para "no se mando link_username en esta peticion": distinto de
+#: None, que aqui significa "desvincular a proposito" (ver _resolver_vinculo).
+_SIN_CAMBIO = object()
+
+
+def _acceso_hogar(user, prefijo: str = '') -> Q:
+    """
+    Filtro Q para "el usuario tiene acceso a este hogar": es el dueno, o es
+    un HouseholdMember de ese hogar con su cuenta vinculada (`user` no nulo).
+
+    `prefijo` es la ruta de campos hasta `household` en el modelo que se
+    esta filtrando: vacio si el modelo tiene `household` como FK directa
+    (Recipe, Purchase...), o algo como 'purchase__'/'recipe__' si household
+    esta detras de otra FK (PurchaseItem, RecipeIngredient...).
+
+    Todo QuerySet filtrado con esto necesita `.distinct()`: el OR fuerza un
+    JOIN contra household_member incluso cuando la fila ya encaja por
+    `owner`, y con mas de un miembro eso duplica filas.
+    """
+    return Q(**{f'{prefijo}household__owner': user}) | Q(**{f'{prefijo}household__members__user': user})
+
+
+def _accesible_o_404(queryset, pk, user, prefijo: str = ''):
+    """
+    Como get_object_or_404, pero acepta tanto al dueno del hogar como a un
+    miembro con la cuenta vinculada. Vale tanto para Household directamente
+    (prefijo vacio, campos `owner`/`members__user`) como para un modelo que
+    cuelga de un hogar (prefijo no vacio, ver _acceso_hogar).
+    """
+    if queryset.model is Household:
+        condicion = Q(owner=user) | Q(members__user=user)
+    else:
+        condicion = _acceso_hogar(user, prefijo)
+    return get_object_or_404(queryset.filter(condicion).distinct(), pk=pk)
+
+
+def _resolver_vinculo(datos, instance=None):
+    """
+    Traduce `link_username` del cuerpo de la peticion al usuario real que
+    hay que guardar en HouseholdMember.user, o a _SIN_CAMBIO si no se mando
+    esa clave (para no tocar el vinculo que ya hubiera en un PATCH parcial).
+
+    Solo se acepta un username exacto, nunca un id de usuario en crudo:
+    aceptar un id dejaria vincular la cuenta de cualquiera con solo
+    adivinarlo. Cadena vacia desvincula a proposito.
+
+    `instance` es la fila que se esta editando (None al crear), para que
+    comprobar "esa cuenta ya esta vinculada" no choque contra si misma al
+    volver a guardar sin cambiar el vinculo.
+    """
+    if 'link_username' not in datos:
+        return _SIN_CAMBIO
+    username = str(datos.get('link_username') or '').strip()
+    if not username:
+        return None
+    usuario = User.objects.filter(username__iexact=username, is_active=True).first()
+    if usuario is None:
+        raise ValidationError({'link_username': ['No existe ninguna cuenta activa con ese nombre de usuario.']})
+    ya_vinculado = HouseholdMember.objects.filter(user=usuario)
+    if instance is not None:
+        ya_vinculado = ya_vinculado.exclude(pk=instance.pk)
+    if ya_vinculado.exists():
+        raise ValidationError({'link_username': ['Esa cuenta ya está vinculada a otro miembro.']})
+    return usuario
+
+
 class HouseholdViewSet(viewsets.ModelViewSet):
-    """API endpoint for households. Only ever shows/edits households owned by the caller."""
+    """
+    Un hogar es visible (listar, ver, /summary) tanto por su dueno como por
+    cualquier miembro con la cuenta vinculada -- es la base de "hogar
+    multiusuario": la pareja/companero de piso que se vincula ve el mismo
+    hogar, no uno propio vacio. Renombrarlo o borrarlo sigue siendo solo
+    cosa del dueno (ver perform_update/perform_destroy): dejar que un
+    miembro cualquiera borrara el hogar entero seria demasiado poder para
+    alguien que solo se anadio para compartir la compra.
+    """
 
     serializer_class = HouseholdSerializer
     is_private = True
@@ -68,10 +192,21 @@ class HouseholdViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Household.objects.none()
-        return Household.objects.filter(owner=self.request.user)
+        user = self.request.user
+        return Household.objects.filter(Q(owner=user) | Q(members__user=user)).distinct()
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+
+    def perform_update(self, serializer):
+        if serializer.instance.owner_id != self.request.user.id:
+            raise PermissionDenied('Solo el dueño del hogar puede editarlo.')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.owner_id != self.request.user.id:
+            raise PermissionDenied('Solo el dueño del hogar puede eliminarlo.')
+        instance.delete()
 
     @action(detail=True, methods=['get'])
     def summary(self, request, pk=None):
@@ -118,13 +253,57 @@ class HouseholdViewSet(viewsets.ModelViewSet):
 
 
 class HouseholdMemberViewSet(viewsets.ModelViewSet):
+    """
+    Lectura abierta a cualquiera con acceso al hogar (dueno o miembro
+    vinculado): todos pueden ver quien mas hay. Anadir, editar o quitar un
+    miembro -- y vincular o desvincular su cuenta -- sigue siendo solo cosa
+    del dueno: es la unica gestion del hogar que no se comparte, para que un
+    miembro no pueda quitar a otro (ni vincularse el sitio de alguien) sin
+    que el dueno lo decida.
+    """
+
     serializer_class = HouseholdMemberSerializer
     is_private = True
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return HouseholdMember.objects.none()
-        return HouseholdMember.objects.filter(household__owner=self.request.user)
+        return HouseholdMember.objects.filter(_acceso_hogar(self.request.user)).distinct()
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Deliberadamente estricto (solo dueno, no _accesible_o_404): anadir
+        # miembros es gestion del hogar, no dato compartido.
+        get_object_or_404(Household, pk=household_id, owner=request.user)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # `link_username` no es un campo del modelo (se resuelve aparte a
+        # `user`, ver _resolver_vinculo): sin quitarlo de validated_data,
+        # ModelSerializer.create() se lo pasaria tal cual a
+        # HouseholdMember.objects.create() y rompe con un TypeError.
+        serializer.validated_data.pop('link_username', None)
+        vinculo = _resolver_vinculo(request.data)
+        serializer.save(user=None if vinculo is _SIN_CAMBIO else vinculo)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def perform_update(self, serializer):
+        if serializer.instance.household.owner_id != self.request.user.id:
+            raise PermissionDenied('Solo el dueño del hogar puede editar a sus miembros.')
+        serializer.validated_data.pop('link_username', None)
+        vinculo = _resolver_vinculo(self.request.data, instance=serializer.instance)
+        if vinculo is _SIN_CAMBIO:
+            serializer.save()
+        else:
+            serializer.save(user=vinculo)
+
+    def perform_destroy(self, instance):
+        if instance.household.owner_id != self.request.user.id:
+            raise PermissionDenied('Solo el dueño del hogar puede eliminar a sus miembros.')
+        instance.delete()
 
 
 class IngredientPriceViewSet(viewsets.ModelViewSet):
@@ -135,7 +314,141 @@ class IngredientPriceViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return IngredientPrice.objects.none()
-        return IngredientPrice.objects.filter(household__owner=self.request.user)
+        return IngredientPrice.objects.filter(_acceso_hogar(self.request.user)).distinct()
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Mismo motivo: `household` es escribible, sin esto se podria anadir
+        # un precio al hogar de otro con solo adivinar su id. Dueno O
+        # miembro vinculado: es un dato compartido, no gestion del hogar.
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
+        return super().create(request, *args, **kwargs)
+
+
+class PantryItemViewSet(viewsets.ModelViewSet):
+    """
+    Stock de despensa de un hogar: cuanto queda de cada producto. Dueno o
+    miembro vinculado puede ver, anadir a mano, corregir la cantidad (segun
+    se va gastando) o quitar una linea -- es un dato compartido del hogar,
+    igual que las recetas o las listas de la compra, no gestion.
+
+    Ademas de la gestion manual, PurchaseItemViewSet suma o resta aqui en
+    automatico cuando se marca/desmarca o se borra una linea de compra ya
+    marcada como comprada (ver _ajustar_despensa mas abajo).
+    """
+
+    serializer_class = PantryItemSerializer
+    is_private = True
+    filterset_fields = ('household',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return PantryItem.objects.none()
+        return PantryItem.objects.filter(_acceso_hogar(self.request.user)).distinct()
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Mismo motivo que en el resto del modulo: `household` es escribible,
+        # sin esto se podria anadir una linea a la despensa de otro con solo
+        # adivinar su id. Dueno O miembro vinculado.
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
+        return super().create(request, *args, **kwargs)
+
+
+def _buscar_linea_despensa(household, purchase_item):
+    """La fila de PantryItem que representa el mismo producto que esta
+    linea de compra: mismo ingrediente (o mismo nombre si no hay
+    ingrediente) y misma unidad. Cantidades en unidades distintas del mismo
+    producto (1 kg de arroz frente a 500 g) no se mezclan en una sola fila:
+    seria falsear el stock en vez de sumarlo."""
+    qs = PantryItem.objects.filter(household=household, unit=purchase_item.unit)
+    if purchase_item.ingredient_id:
+        qs = qs.filter(ingredient_id=purchase_item.ingredient_id)
+    else:
+        qs = qs.filter(ingredient__isnull=True, name=purchase_item.name)
+    return qs.first()
+
+
+def _ajustar_despensa(purchase_item, *, sumar: bool):
+    """
+    Suma (al marcar una linea de compra como comprada) o resta (al
+    desmarcarla, o al borrarla si seguia marcada) su cantidad al stock de
+    despensa del hogar, sin bajar nunca de cero.
+    """
+    household = purchase_item.purchase.household
+    despensa = _buscar_linea_despensa(household, purchase_item)
+    if despensa is None:
+        if not sumar:
+            return
+        despensa = PantryItem(
+            household=household,
+            ingredient_id=purchase_item.ingredient_id,
+            name=purchase_item.name,
+            unit=purchase_item.unit,
+            amount=Decimal('0'),
+        )
+    delta = purchase_item.amount if sumar else -purchase_item.amount
+    despensa.amount = max(Decimal('0'), despensa.amount + delta)
+    despensa.save()
+
+
+def _sincronizar_compra_real(item, *, comprado: bool):
+    """
+    Cuando se marca/desmarca como comprada una linea de una ShoppingList (la
+    lista generada desde nutricion o desde recetas), crea o actualiza su
+    reflejo real en Compras: una PurchaseItem, dentro de la Purchase que
+    representa esa tanda de esa lista. Sin esto, "comprado" en la Lista se
+    quedaba solo en un check que no contaba ni en Compras ni (por lo tanto,
+    ver _ajustar_despensa) en la despensa.
+
+    Volver a marcar la misma linea reutiliza siempre la misma PurchaseItem
+    (uno a uno via shopping_list_item) en vez de duplicarla, y todas las
+    lineas de la misma tanda de la misma lista comparten una unica Purchase
+    (una por tanda, no una por linea).
+
+    Desmarcar no borra la PurchaseItem ni la Purchase: solo pone
+    purchased=False, igual que se haria a mano en Compras. La compra real ya
+    hecha no se deshace solo porque se desmarque el check.
+    """
+    if comprado:
+        purchase, _ = Purchase.objects.get_or_create(
+            household=item.shopping_list.household,
+            shopping_list=item.shopping_list,
+            trip=item.trip,
+            defaults={
+                'date': item.buy_date or timezone.now().date(),
+                'description': f'{item.shopping_list.name} - tanda {item.trip}',
+                'covers_days': item.days_covered or 1,
+            },
+        )
+        purchase_item, creada = PurchaseItem.objects.get_or_create(
+            shopping_list_item=item,
+            defaults={
+                'purchase': purchase,
+                'ingredient': item.ingredient,
+                'name': item.name,
+                'amount': item.amount,
+                'unit': item.unit,
+                'price': item.estimated_price or Decimal('0'),
+                'purchased': True,
+            },
+        )
+        if creada:
+            _ajustar_despensa(purchase_item, sumar=True)
+        elif not purchase_item.purchased:
+            purchase_item.purchased = True
+            purchase_item.save()
+            _ajustar_despensa(purchase_item, sumar=True)
+    else:
+        purchase_item = PurchaseItem.objects.filter(shopping_list_item=item).first()
+        if purchase_item is not None and purchase_item.purchased:
+            purchase_item.purchased = False
+            purchase_item.save()
+            _ajustar_despensa(purchase_item, sumar=False)
 
 
 class PurchaseViewSet(viewsets.ModelViewSet):
@@ -146,7 +459,17 @@ class PurchaseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Purchase.objects.none()
-        return Purchase.objects.filter(household__owner=self.request.user)
+        return Purchase.objects.filter(_acceso_hogar(self.request.user)).distinct()
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Mismo motivo: `household` es escribible, sin esto se podria crear
+        # una compra bajo el hogar de otro con solo adivinar su id. Dueno O
+        # miembro vinculado.
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
+        return super().create(request, *args, **kwargs)
 
     @action(detail=True, methods=['get'])
     def breakdown(self, request, pk=None):
@@ -180,7 +503,245 @@ class PurchaseItemViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return PurchaseItem.objects.none()
-        return PurchaseItem.objects.filter(purchase__household__owner=self.request.user)
+        return PurchaseItem.objects.filter(_acceso_hogar(self.request.user, 'purchase__')).distinct()
+
+    def create(self, request, *args, **kwargs):
+        purchase_id = request.data.get('purchase')
+        if not purchase_id:
+            return Response({'detail': 'purchase is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # `purchase` es escribible en el serializer: sin esto se podria
+        # anadir una linea a la compra de otro con solo adivinar su id.
+        # Dueno O miembro vinculado.
+        _accesible_o_404(Purchase.objects.all(), purchase_id, request.user)
+        return super().create(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        # `serializer.instance` es la fila tal cual estaba en la base de
+        # datos hasta este punto: ModelSerializer.save() la muta en el
+        # mismo objeto Python, asi que hay que leer `purchased` ANTES de
+        # guardar para saber si de verdad cambio (y no ajustar la despensa
+        # dos veces si el cliente manda el mismo valor que ya tenia).
+        estaba_comprado = serializer.instance.purchased
+        serializer.save()
+        si_ahora = serializer.instance.purchased
+        if si_ahora != estaba_comprado:
+            _ajustar_despensa(serializer.instance, sumar=si_ahora)
+
+    def perform_destroy(self, instance):
+        # Si la linea ya estaba marcada como comprada, borrarla sin
+        # devolver su cantidad a la despensa dejaria stock fantasma.
+        if instance.purchased:
+            _ajustar_despensa(instance, sumar=False)
+        instance.delete()
+
+
+class ReceiptViewSet(viewsets.ModelViewSet):
+    """
+    Tickets de la compra subidos como foto. Ver la nota larga en
+    salaz/models/receipt.py sobre el camino foto -> texto -> datos.
+
+    Sobre la transcripcion automatica de la foto: la hace /transcribir/, que
+    manda la imagen ya subida a la API de vision de Claude (ver
+    salaz/tickets_vision.py) y rellena `markdown` con el resultado, sin
+    analizar ni tocar compras/despensa. El resto de la cadena (analizar el
+    texto, revisar, confirmar) no depende de como se haya obtenido ese
+    texto: si /transcribir/ falla (sin foto, sin clave configurada, error de
+    Claude) el ticket se queda tal cual, y el usuario siempre puede escribir
+    o corregir el texto a mano y analizar igualmente.
+    """
+
+    serializer_class = ReceiptSerializer
+    is_private = True
+    filterset_fields = ('household', 'status')
+    # Mismo motivo que en RecipeViewSet: wger fija los parsers a solo JSON y
+    # aqui se sube un fichero.
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Receipt.objects.none()
+        return Receipt.objects.filter(_acceso_hogar(self.request.user)).distinct()
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
+        return super().create(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'])
+    def transcribir(self, request, pk=None):
+        """
+        Transcribe la foto ya subida a `markdown`, via Claude (vision).
+
+        No analiza ni toca compras/despensa (eso sigue siendo /analizar/ y
+        /confirmar/): solo rellena el texto para que el usuario lo revise, y
+        si hace falta lo corrija, antes de analizarlo -- igual que si lo
+        hubiera pegado a mano. Si falla (sin foto, sin clave configurada,
+        error de Claude) no se toca el ticket: el camino manual sigue
+        intacto.
+        """
+        receipt = self.get_object()
+        if receipt.status == Receipt.CONFIRMADO:
+            return Response(
+                {'detail': 'Este ticket ya está confirmado.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not receipt.image:
+            return Response(
+                {'detail': 'Este ticket no tiene foto que transcribir.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        receipt.image.open('rb')
+        try:
+            imagen_bytes = receipt.image.read()
+        finally:
+            receipt.image.close()
+
+        try:
+            texto = tickets_vision.transcribir_ticket(imagen_bytes, receipt.image.name)
+        except tickets_vision.TranscripcionNoDisponible as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except tickets_vision.TranscripcionFallida as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        receipt.markdown = texto
+        receipt.save(update_fields=['markdown', 'updated_at'])
+        return Response(self.get_serializer(receipt).data)
+
+    @action(detail=True, methods=['post'])
+    def analizar(self, request, pk=None):
+        """
+        Pasa el texto del ticket por el parser y guarda el resultado para que
+        el usuario lo revise. No toca compras ni despensa: eso es /confirmar/.
+
+        Acepta `markdown` en el cuerpo para reemplazar la transcripcion en la
+        misma llamada, que es el caso normal: se corrige una linea mal leida
+        y se vuelve a analizar.
+        """
+        receipt = self.get_object()
+        if receipt.status == Receipt.CONFIRMADO:
+            return Response(
+                {'detail': 'Este ticket ya está confirmado. Para rehacerlo, elimina antes su compra.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if 'markdown' in request.data:
+            receipt.markdown = str(request.data.get('markdown') or '')
+
+        if not receipt.markdown.strip():
+            receipt.status = Receipt.ERROR
+            receipt.error = 'No hay texto que analizar. Pega la transcripción del ticket.'
+            receipt.parsed = {}
+            receipt.save()
+            return Response(self.get_serializer(receipt).data, status=status.HTTP_400_BAD_REQUEST)
+
+        ticket = tickets.parsear_ticket(receipt.markdown)
+        receipt.parsed = tickets.a_json(ticket)
+        receipt.supermarket = ticket.supermarket
+        receipt.date = ticket.date
+        receipt.total = ticket.total
+        if ticket.lines:
+            receipt.status = Receipt.ANALIZADO
+            receipt.error = ''
+        else:
+            # Sin lineas no hay nada que confirmar, pero el texto se conserva
+            # para que el usuario lo corrija y lo vuelva a intentar.
+            receipt.status = Receipt.ERROR
+            receipt.error = 'No se ha reconocido ninguna línea de producto en el texto.'
+        receipt.save()
+        return Response(self.get_serializer(receipt).data)
+
+    @action(detail=True, methods=['post'])
+    def confirmar(self, request, pk=None):
+        """
+        Vuelca el ticket ya analizado a una compra real: crea la Purchase y
+        sus lineas, casa lo que pueda contra la lista de la compra activa y
+        deja que la despensa se ajuste por el mismo camino de siempre.
+
+        Es idempotente: si el ticket ya tiene compra, devuelve la que hay sin
+        crear otra. Confirmar es lo unico que mueve datos fuera del ticket,
+        y por eso es un paso aparte de analizar.
+        """
+        receipt = self.get_object()
+        if receipt.purchase_id:
+            return Response(self.get_serializer(receipt).data)
+        if receipt.status != Receipt.ANALIZADO:
+            return Response(
+                {'detail': 'Analiza el ticket antes de confirmarlo.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        lineas = receipt.parsed.get('lines') or []
+        if not lineas:
+            return Response(
+                {'detail': 'El ticket no tiene líneas que volcar.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            purchase = Purchase.objects.create(
+                household=receipt.household,
+                date=receipt.date or timezone.now().date(),
+                description=f'Ticket {receipt.supermarket}'.strip(),
+                supermarket=receipt.supermarket,
+            )
+
+            pendientes = self._lineas_de_lista_pendientes(receipt.household)
+
+            for linea in lineas:
+                nombre = str(linea.get('name') or '').strip()
+                item = PurchaseItem(
+                    purchase=purchase,
+                    name=nombre,
+                    amount=_decimal_o_cero(linea.get('amount')),
+                    unit=str(linea.get('unit') or 'unit'),
+                    price=_decimal_o_cero(linea.get('total')),
+                    purchased=True,
+                )
+                # Casar con la lista se hace por nombre normalizado (misma
+                # funcion que usa el generador de listas): el ticket no trae
+                # el id del producto, solo como lo imprime el supermercado.
+                de_la_lista = pendientes.pop(frescura.normalizar_nombre(nombre), None)
+                if de_la_lista is not None:
+                    item.shopping_list_item = de_la_lista
+                item.save()
+                _ajustar_despensa(item, sumar=True)
+
+                if de_la_lista is not None:
+                    # Se marca por el ORM a proposito, NO por el ViewSet de la
+                    # lista: pasar por ahi dispararia _sincronizar_compra_real
+                    # y crearia una SEGUNDA compra para lo que ya acabamos de
+                    # meter en esta, duplicando el gasto y la despensa.
+                    de_la_lista.purchased = True
+                    de_la_lista.save(update_fields=['purchased'])
+
+            receipt.purchase = purchase
+            receipt.status = Receipt.CONFIRMADO
+            receipt.error = ''
+            receipt.save()
+
+        return Response(self.get_serializer(receipt).data, status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _lineas_de_lista_pendientes(household) -> dict:
+        """
+        Lo que aun esta por comprar en la lista activa del hogar, indexado por
+        nombre normalizado, para casarlo con las lineas del ticket.
+
+        Se excluyen las que ya tienen PurchaseItem enlazada: el enlace es uno
+        a uno, y volver a usarla reventaria con un IntegrityError.
+        """
+        lista = ShoppingList.objects.filter(household=household).order_by('-created').first()
+        if lista is None:
+            return {}
+        pendientes = {}
+        for item in lista.items.filter(purchased=False, purchase_item__isnull=True):
+            # El primero gana: si el mismo producto sale en varias tandas, la
+            # compra de hoy solo cubre una de ellas.
+            pendientes.setdefault(frescura.normalizar_nombre(item.name), item)
+        return pendientes
 
 
 class RecipeViewSet(viewsets.ModelViewSet):
@@ -195,7 +756,17 @@ class RecipeViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Recipe.objects.none()
-        return Recipe.objects.filter(household__owner=self.request.user)
+        return Recipe.objects.filter(_acceso_hogar(self.request.user)).distinct()
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # `household` es un campo normal del serializer (no read_only), asi
+        # que sin esto cualquiera podria crear una receta bajo el hogar de
+        # otro con solo adivinar su id. Dueno O miembro vinculado.
+        _accesible_o_404(Household.objects.all(), household_id, request.user)
+        return super().create(request, *args, **kwargs)
 
     @action(detail=True, methods=['get'])
     def cost(self, request, pk=None):
@@ -223,7 +794,17 @@ class RecipeIngredientViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return RecipeIngredient.objects.none()
-        return RecipeIngredient.objects.filter(recipe__household__owner=self.request.user)
+        return RecipeIngredient.objects.filter(_acceso_hogar(self.request.user, 'recipe__')).distinct()
+
+    def create(self, request, *args, **kwargs):
+        recipe_id = request.data.get('recipe')
+        if not recipe_id:
+            return Response({'detail': 'recipe is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Mismo motivo que en RecipeViewSet.create: `recipe` es escribible en
+        # el serializer, sin esto se podria anadir un ingrediente a la receta
+        # de otro con solo adivinar su id. Dueno O miembro vinculado.
+        _accesible_o_404(Recipe.objects.all(), recipe_id, request.user)
+        return super().create(request, *args, **kwargs)
 
 
 class ShoppingListViewSet(viewsets.ModelViewSet):
@@ -236,8 +817,10 @@ class ShoppingListViewSet(viewsets.ModelViewSet):
             return ShoppingList.objects.none()
         # prefetch obligatorio: el serializer expone `trips`, que recorre las
         # lineas de cada lista. Sin esto, listar N listas hace N consultas.
-        return ShoppingList.objects.filter(household__owner=self.request.user).prefetch_related(
-            'items'
+        return (
+            ShoppingList.objects.filter(_acceso_hogar(self.request.user))
+            .distinct()
+            .prefetch_related('items')
         )
 
     @action(detail=False, methods=['post'], url_path='from-nutrition')
@@ -265,7 +848,7 @@ class ShoppingListViewSet(viewsets.ModelViewSet):
         household_id = request.data.get('household')
         if not household_id:
             return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        household = get_object_or_404(Household, pk=household_id, owner=request.user)
+        household = _accesible_o_404(Household.objects.all(), household_id, request.user)
 
         plan_id = request.data.get('plan')
         if plan_id:
@@ -397,7 +980,7 @@ class ShoppingListViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        household = get_object_or_404(Household, pk=household_id, owner=request.user)
+        household = _accesible_o_404(Household.objects.all(), household_id, request.user)
 
         shopping_list = ShoppingList.objects.create(
             household=household,
@@ -458,4 +1041,489 @@ class ShoppingListItemViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return ShoppingListItem.objects.none()
-        return ShoppingListItem.objects.filter(shopping_list__household__owner=self.request.user)
+        return ShoppingListItem.objects.filter(
+            _acceso_hogar(self.request.user, 'shopping_list__')
+        ).distinct()
+
+    def create(self, request, *args, **kwargs):
+        shopping_list_id = request.data.get('shopping_list')
+        if not shopping_list_id:
+            return Response({'detail': 'shopping_list is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # `shopping_list` es escribible en el serializer y esto no tenia
+        # ningun create() propio: sin esto se podia anadir una linea a la
+        # lista de otro con solo adivinar su id (mismo hueco que ya se
+        # cerro en Recipe/Purchase/etc., aqui se habia quedado sin tocar).
+        _accesible_o_404(ShoppingList.objects.all(), shopping_list_id, request.user)
+        return super().create(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        # Mismo motivo que en PurchaseItemViewSet.perform_update:
+        # `serializer.instance` todavia es el valor de antes de guardar en
+        # este punto (ModelSerializer.save() lo muta en el mismo objeto), asi
+        # que hay que leer `purchased` ANTES de guardar.
+        estaba_comprado = serializer.instance.purchased
+        serializer.save()
+        si_ahora = serializer.instance.purchased
+        if si_ahora != estaba_comprado:
+            _sincronizar_compra_real(serializer.instance, comprado=si_ahora)
+
+    @action(detail=False, methods=['delete'], url_path='by-group/(?P<group_key>[^/.]+)')
+    def by_group(self, request, group_key=None):
+        """
+        Quita un producto de TODA la lista de una vez: todas sus tandas
+        (ver group_key en el modelo), no solo la fila que se toco.
+
+        Una sola peticion atomica en vez de una por fila (el patron anterior,
+        N DELETE seguidos desde el cliente): si el movil pierde la conexion a
+        mitad, con N peticiones sueltas el producto queda a medio borrar en
+        unas tandas si y en otras no. Con una transaccion, o se borra entero
+        o no se borra nada.
+
+        get_queryset ya filtra por el usuario que llama, asi que esto nunca
+        toca lineas de un hogar ajeno aunque alguien adivine el group_key.
+        """
+        lineas = list(self.get_queryset().filter(group_key=group_key))
+        if not lineas:
+            return Response({'detail': 'Ese grupo no existe.'}, status=status.HTTP_404_NOT_FOUND)
+
+        shopping_list_id = lineas[0].shopping_list_id
+        with transaction.atomic():
+            self.get_queryset().filter(group_key=group_key).delete()
+
+        return Response(
+            {'shopping_list': shopping_list_id, 'deleted': len(lineas)},
+            status=status.HTTP_200_OK,
+        )
+
+
+# ----------------------------------------------------------------------------
+# Datos que antes solo vivian en el localStorage del navegador (ver la tarea
+# de sincronizacion entre PC, Android e iPhone del dueno). Todos comparten dos
+# rasgos:
+#
+#   - get_queryset filtra SIEMPRE por el usuario que llama, igual que el resto
+#     del modulo: nunca se expone una fila de otro usuario.
+#   - `create()` hace un upsert (get_or_create + actualizar) en vez de fallar
+#     con un IntegrityError si ya existia una fila para esa clave. El cliente
+#     no tiene que acordarse de si ya mando este dato antes: manda lo que
+#     tiene y el servidor decide crear o pisar. Esto es justo lo que hace
+#     "ultima escritura gana" simple de implementar en el cliente.
+# ----------------------------------------------------------------------------
+
+
+class WaterLogViewSet(viewsets.ModelViewSet):
+    """Agua bebida por dia. Un registro por (usuario, fecha); escribir el mismo dia lo actualiza."""
+
+    serializer_class = WaterLogSerializer
+    is_private = True
+    filterset_fields = ('date',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WaterLog.objects.none()
+        return WaterLog.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        fecha = _parse_date(request.data.get('date'))
+        if fecha is None:
+            return Response(
+                {'detail': 'date is required and must be YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        instance, _ = WaterLog.objects.get_or_create(user=request.user, date=fecha)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class WeightGoalViewSet(viewsets.ModelViewSet):
+    """El objetivo de peso vigente del usuario. Uno solo: crear vuelve a escribir el mismo."""
+
+    serializer_class = WeightGoalSerializer
+    is_private = True
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WeightGoal.objects.none()
+        return WeightGoal.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        instance, _ = WeightGoal.objects.get_or_create(user=request.user)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class WeeklyPlanViewSet(viewsets.ModelViewSet):
+    """El plan semanal vigente de un hogar. Uno solo: crear vuelve a escribir el mismo."""
+
+    serializer_class = WeeklyPlanSerializer
+    is_private = True
+    filterset_fields = ('household',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WeeklyPlan.objects.none()
+        return WeeklyPlan.objects.filter(_acceso_hogar(self.request.user)).distinct()
+
+    def create(self, request, *args, **kwargs):
+        household_id = request.data.get('household')
+        if not household_id:
+            return Response({'detail': 'household is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Solo un hogar accesible (dueno o miembro vinculado) puede recibir
+        # un plan: sin esto, cualquiera podria escribir el plan semanal de
+        # un hogar ajeno con solo adivinar su id.
+        household = _accesible_o_404(Household.objects.all(), household_id, request.user)
+        instance = WeeklyPlan.objects.filter(household=household).first()
+        if instance is None:
+            for campo in ('start_date', 'end_date'):
+                if not request.data.get(campo):
+                    return Response(
+                        {'detail': f'{campo} is required.'}, status=status.HTTP_400_BAD_REQUEST
+                    )
+            instance = WeeklyPlan(household=household)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class FavoriteIngredientViewSet(viewsets.ModelViewSet):
+    """Alimentos marcados como favoritos por el usuario."""
+
+    serializer_class = FavoriteIngredientSerializer
+    is_private = True
+    filterset_fields = ('ingredient',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return FavoriteIngredient.objects.none()
+        return FavoriteIngredient.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        ingredient_id = request.data.get('ingredient')
+        if not ingredient_id:
+            return Response({'detail': 'ingredient is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        ingredient = get_object_or_404(Ingredient, pk=ingredient_id)
+        # Marcar dos veces el mismo favorito no es un error: simplemente ya
+        # estaba. Sin esto, el segundo POST desde otro dispositivo rompia con
+        # un IntegrityError por la unicidad (usuario, ingrediente).
+        instance, _ = FavoriteIngredient.objects.get_or_create(user=request.user, ingredient=ingredient)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class RecentIngredientViewSet(viewsets.ModelViewSet):
+    """
+    Ultimos alimentos usados por el usuario. Tope de MAX_RECIENTES, orden por
+    fecha de uso: registrar uno que ya estaba lo sube al principio en vez de
+    duplicarlo, e igual que en el cliente (ver recent_ingredient.py) se
+    recorta lo mas viejo al pasarse del tope.
+    """
+
+    serializer_class = RecentIngredientSerializer
+    is_private = True
+    filterset_fields = ('ingredient',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return RecentIngredient.objects.none()
+        return RecentIngredient.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        ingredient_id = request.data.get('ingredient')
+        if not ingredient_id:
+            return Response({'detail': 'ingredient is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        ingredient = get_object_or_404(Ingredient, pk=ingredient_id)
+        instance, created = RecentIngredient.objects.get_or_create(user=request.user, ingredient=ingredient)
+        if not created:
+            # auto_now en updated_at hace el resto: guardar sin cambios ya
+            # sube este registro al principio de la lista ordenada por fecha.
+            instance.save()
+
+        ids_a_conservar = list(
+            RecentIngredient.objects.filter(user=request.user)
+            .order_by('-updated_at')
+            .values_list('id', flat=True)[:MAX_RECIENTES]
+        )
+        RecentIngredient.objects.filter(user=request.user).exclude(id__in=ids_a_conservar).delete()
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WorkoutRescheduleViewSet(viewsets.ModelViewSet):
+    """
+    Intercambiar el entreno de una fecha con el de otra. Ver la nota completa
+    en salaz/models/workout_reschedule.py: es un intercambio de dos mitades,
+    no un mover a secas, y la rutina/dia de cada mitad se congelan en el
+    momento de crear la fila (no se recalculan despues).
+
+    Deshacer un movimiento es un DELETE normal sobre la fila: no hay un
+    estado que cambiar, cada movimiento nuevo es su propia fila.
+    """
+
+    serializer_class = WorkoutRescheduleSerializer
+    is_private = True
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WorkoutReschedule.objects.none()
+        return WorkoutReschedule.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        origen = _parse_date(request.data.get('origin_date'))
+        destino = _parse_date(request.data.get('target_date'))
+        if origen is None or destino is None:
+            return Response(
+                {'detail': 'origin_date and target_date are required and must be YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if origen == destino:
+            return Response(
+                {'detail': 'origin_date and target_date must be different.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Ninguna de las dos fechas puede estar ya metida en otro movimiento
+        # activo, ni como origen ni como destino: las UniqueConstraint del
+        # modelo solo cubren una columna cada una, esto cubre el cruce entre
+        # las dos (una constraint de base de datos no puede comparar
+        # origin_date de una fila nueva contra target_date de una existente).
+        # Si una fecha ya esta movida, hay que deshacer esa fila primero.
+        fechas = (origen, destino)
+        ya_movida = WorkoutReschedule.objects.filter(user=request.user).filter(
+            Q(origin_date__in=fechas) | Q(target_date__in=fechas)
+        )
+        if ya_movida.exists():
+            return Response(
+                {'detail': 'One of these dates is already part of another reschedule. Undo it first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(user=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WorkoutDaySkipViewSet(viewsets.ModelViewSet):
+    """
+    Marca una fecha como omitida a proposito (ver la nota completa en
+    salaz/models/workout_day_skip.py sobre por que esto no es lo mismo que
+    la ausencia de datos). Una sola fila por (usuario, fecha).
+    """
+
+    serializer_class = WorkoutDaySkipSerializer
+    is_private = True
+    filterset_fields = ('date',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WorkoutDaySkip.objects.none()
+        return WorkoutDaySkip.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        fecha = _parse_date(request.data.get('date'))
+        if fecha is None:
+            return Response(
+                {'detail': 'date is required and must be YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Marcar dos veces la misma fecha no es un error: ya estaba omitida.
+        instance, _ = WorkoutDaySkip.objects.get_or_create(user=request.user, date=fecha)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WorkoutSessionDraftViewSet(viewsets.ModelViewSet):
+    """Progreso guardado de una sesion de entrenamiento aun sin terminar. Uno por (usuario, fecha)."""
+
+    serializer_class = WorkoutSessionDraftSerializer
+    is_private = True
+    filterset_fields = ('date',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return WorkoutSessionDraft.objects.none()
+        return WorkoutSessionDraft.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        fecha = _parse_date(request.data.get('date'))
+        if fecha is None:
+            return Response(
+                {'detail': 'date is required and must be YYYY-MM-DD.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        instance, _ = WorkoutSessionDraft.objects.get_or_create(user=request.user, date=fecha)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class DeviceStateViewSet(viewsets.ModelViewSet):
+    """
+    Preferencias clave/valor que cruzan dispositivos (rutina activa, plan de
+    nutricion activo). Ver la nota completa sobre "ultima escritura gana" en
+    salaz/models/device_state.py.
+    """
+
+    serializer_class = DeviceStateSerializer
+    is_private = True
+    filterset_fields = ('key',)
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return DeviceState.objects.none()
+        return DeviceState.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        key = request.data.get('key')
+        if key not in dict(DeviceState.KEY_CHOICES):
+            return Response({'detail': 'key must be one of rutina_activa, plan_activo.'}, status=status.HTTP_400_BAD_REQUEST)
+        instance, _ = DeviceState.objects.get_or_create(user=request.user, key=key)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# --- Sincronizacion en tiempo real (SSE) --------------------------------
+#
+# No es WebSocket a proposito: lo unico que necesita el cliente es un "algo
+# ha cambiado, refresca ese recurso" (ver la nota larga en
+# salaz/models/change_feed.py). Channels+ASGI+Redis para esto seria
+# desproporcionado en un portatil que hace de servidor; con Server-Sent
+# Events sobre el mismo WSGI/gunicorn de siempre basta.
+#
+# Las dos funciones de abajo (_cambios_desde y _formatear_evento) son puras
+# a proposito: son la parte determinista de este endpoint, y probarlas
+# directamente evita que los tests tengan que consumir el stream infinito
+# de eventos_sse (ver salaz/tests/test_tiempo_real.py).
+
+SSE_DURACION_MAXIMA = 5 * 60  # segundos
+SSE_INTERVALO_SONDEO = 2  # segundos entre cada consulta de cambios nuevos
+SSE_INTERVALO_LATIDO = 20  # segundos sin cambios antes de mandar un ping
+
+
+def _hogares_visibles(user):
+    """
+    Los Household a los que el usuario tiene acceso: dueno o miembro vinculado.
+
+    No usa _acceso_hogar(user) tal cual: ese filtro esta pensado para un
+    modelo que CUELGA de un hogar (campo `household`, o `prefijo` hasta
+    el), y Household no tiene ese campo sobre si mismo (ver el mismo caso
+    especial en _accesible_o_404 mas arriba).
+    """
+    return Household.objects.filter(Q(owner=user) | Q(members__user=user)).distinct()
+
+
+def _cambios_desde(cursor: int, hogares_ids):
+    """
+    Filas de ChangeFeed con id > cursor, limitadas a los hogares dados.
+
+    `hogares_ids` es siempre el resultado de _hogares_visibles(user), nunca
+    "todos los hogares": es lo que garantiza que un usuario jamas vea un
+    cambio de un hogar al que no tiene acceso, aunque el cursor que mande
+    sea mas bajo que cambios de otros hogares que ya existan en la tabla.
+    """
+    return list(
+        ChangeFeed.objects.filter(household_id__in=hogares_ids, id__gt=cursor).order_by('id')
+    )
+
+
+def _formatear_evento(fila: ChangeFeed) -> str:
+    """
+    Una fila de ChangeFeed como evento SSE.
+
+    La linea en blanco al final es obligatoria en el formato SSE (marca el
+    fin del evento); sin ella el navegador se queda esperando mas lineas y
+    no entrega nada al `EventSource`/lector de stream del cliente.
+    """
+    datos = json.dumps({'entity': fila.entity, 'household': fila.household_id})
+    return f'id: {fila.pk}\nevent: cambio\ndata: {datos}\n\n'
+
+
+def _cursor_inicial(request) -> int:
+    """
+    De donde arranca el stream: `Last-Event-ID` (lo que manda el navegador
+    solo al reconectar un EventSource) o `?desde=` en la query (lo que usa
+    este frontend, que reconecta a mano con fetch+streams en vez de
+    EventSource). Si no viene ninguno, arranca en el ultimo id que ya
+    existe: solo cambios NUEVOS a partir de la conexion, nunca se reenvia
+    el historial entero al conectar.
+    """
+    crudo = request.headers.get('Last-Event-ID') or request.query_params.get('desde')
+    try:
+        return int(crudo)
+    except (TypeError, ValueError):
+        ultimo = ChangeFeed.objects.order_by('-id').values_list('id', flat=True).first()
+        return ultimo or 0
+
+
+def _stream_eventos(user, cursor_inicial: int):
+    """
+    Generador del cuerpo de la respuesta SSE: sondea cambios nuevos cada
+    `SSE_INTERVALO_SONDEO` segundos y los va emitiendo, con un latido cada
+    `SSE_INTERVALO_LATIDO` segundos si no hay nada que avisar.
+
+    Corta la conexion pasados `SSE_DURACION_MAXIMA` segundos a proposito: un
+    portatil haciendo de servidor tiene pocos workers de gunicorn, y sin
+    tope de vida cada cliente con una pestana abierta ocuparia uno para
+    siempre, hasta dejar la API sin workers libres para el resto de
+    peticiones. El cliente reconecta solo (fetch+streams, no EventSource),
+    asi que cortar aqui es invisible salvo por un hueco de reconexion de una
+    fraccion de segundo.
+    """
+    inicio = time.monotonic()
+    cursor = cursor_inicial
+    ultimo_latido = time.monotonic()
+    while time.monotonic() - inicio < SSE_DURACION_MAXIMA:
+        # Cada vuelta del bucle vive segundos (no milisegundos): sin cerrar
+        # aqui las conexiones a base de datos que ya caducaron (por
+        # CONN_MAX_AGE), un stream de varios minutos se queda con una
+        # conexion abierta y sin usar la mayor parte del tiempo, y unos
+        # cuantos clientes conectados a la vez agotarian el pool de
+        # conexiones disponibles para el resto de peticiones.
+        close_old_connections()
+        hogares_ids = list(_hogares_visibles(user).values_list('id', flat=True))
+        cambios = _cambios_desde(cursor, hogares_ids)
+        if cambios:
+            for fila in cambios:
+                yield _formatear_evento(fila)
+                cursor = fila.pk
+            ultimo_latido = time.monotonic()
+        elif time.monotonic() - ultimo_latido >= SSE_INTERVALO_LATIDO:
+            # Comentario SSE (la linea que empieza por ':' no es un evento):
+            # sin este latido, proxies y navegadores moviles dan la conexion
+            # por muerta y la cierran mucho antes de los 5 minutos de tope.
+            yield ': ping\n\n'
+            ultimo_latido = time.monotonic()
+        time.sleep(SSE_INTERVALO_SONDEO)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def eventos_sse(request):
+    """
+    GET /api/v2/salaz/events/ — sincronizacion en tiempo real por SSE.
+
+    Solo notifica "algo cambio en esta entidad, de este hogar": el cliente
+    reacciona refrescando ese recurso por la API normal, que ya hace su
+    propio filtrado de permisos. Requiere autenticacion (hereda el esquema
+    JWT del resto de la API via @permission_classes de DRF); los hogares que
+    puede ver son siempre los de _hogares_visibles(request.user), nunca
+    todos los que haya en la tabla.
+    """
+    response = StreamingHttpResponse(
+        _stream_eventos(request.user, _cursor_inicial(request)),
+        content_type='text/event-stream',
+    )
+    # Sin estas tres cabeceras, nginx y Cloudflare bufean la respuesta hasta
+    # que se cierra o se llena el buffer, y el stream nunca llega al
+    # cliente en tiempo real (ver deploy/, que es donde vive esa capa).
+    response['Cache-Control'] = 'no-cache'
+    response['X-Accel-Buffering'] = 'no'
+    response['Connection'] = 'keep-alive'
+    return response

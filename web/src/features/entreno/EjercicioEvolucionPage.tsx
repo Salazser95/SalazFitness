@@ -71,7 +71,7 @@ export default function EjercicioEvolucionPage() {
         Volver
       </button>
 
-      <PageTitle>{nombre ?? 'Evolucion del ejercicio'}</PageTitle>
+      <PageTitle>{nombre ?? 'Evolución del ejercicio'}</PageTitle>
 
       {mostrarMediaEjercicios && exerciseId !== null && !media.isLoading && media.video ? (
         <video
@@ -85,14 +85,14 @@ export default function EjercicioEvolucionPage() {
       ) : mostrarMediaEjercicios && exerciseId !== null && !media.isLoading && media.image ? (
         <Thumbnail
           src={media.image}
-          alt={`Como hacer: ${nombre ?? 'ejercicio'}`}
+          alt={`Cómo hacer: ${nombre ?? 'ejercicio'}`}
           className="mb-5 aspect-video"
         />
       ) : mostrarMediaEjercicios && exerciseId !== null && !media.isLoading ? (
         <div className="mb-5">
           <ExerciseIllustration category={categoria.data ?? null} className="aspect-video w-full" />
           <p className="mt-2 text-center text-xs text-fg-subtle">
-            Sin foto de demostracion disponible para este ejercicio todavia.
+            Sin foto de demostración disponible para este ejercicio todavía.
           </p>
         </div>
       ) : null}
@@ -101,7 +101,7 @@ export default function EjercicioEvolucionPage() {
 
       {logs.isError ? (
         <ErrorState
-          message="No se ha podido cargar la evolucion."
+          message="No se ha podido cargar la evolución."
           onRetry={() => void logs.refetch()}
         />
       ) : null}
@@ -109,8 +109,8 @@ export default function EjercicioEvolucionPage() {
       {logs.data && datos.length === 0 ? (
         <EmptyState
           icon={ChartLine}
-          title="Sin registros todavia"
-          description="Cuando registres series de este ejercicio en el modo gimnasio, veras aqui su evolucion."
+          title="Sin registros todavía"
+          description="Cuando registres series de este ejercicio en el modo gimnasio, verás aquí su evolución."
         />
       ) : null}
 
@@ -142,7 +142,7 @@ export default function EjercicioEvolucionPage() {
                 }}
                 labelFormatter={(v) => shortDate(String(v))}
                 formatter={(value, name) => [
-                  name === 'Peso maximo' ? kg(Number(value)) : `${Math.round(Number(value))} kg`,
+                  name === 'Peso máximo' ? kg(Number(value)) : `${Math.round(Number(value))} kg`,
                   name,
                 ]}
               />
@@ -151,7 +151,7 @@ export default function EjercicioEvolucionPage() {
                 yAxisId="peso"
                 type="monotone"
                 dataKey="pesoMax"
-                name="Peso maximo"
+                name="Peso máximo"
                 stroke={COLOR_PESO}
                 strokeWidth={2}
                 dot={{ r: 3 }}

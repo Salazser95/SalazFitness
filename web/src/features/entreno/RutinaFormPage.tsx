@@ -44,6 +44,14 @@ const TIPOS_DIA: { value: DayType; label: string }[] = [
   { value: 'afap', label: 'AFAP' },
 ]
 
+// Un dia de rutina no esta atado a un dia de la semana concreto (puede haber
+// rutinas de cualquier duracion, y el DayNavigator los hace rotar sobre
+// fechas reales, ver useEstadoDelDia). Esto es solo una etiqueta opcional
+// para orientarse al planificar ("este toca en lunes"), guardada en el campo
+// `description` del dia -- que la API de wger ya trae y esta pantalla no usaba
+// para nada mas.
+const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
 function sumarDias(fechaIso: string, dias: number): string {
   const d = new Date(`${fechaIso}T00:00:00`)
   d.setDate(d.getDate() + dias)
@@ -88,7 +96,7 @@ function FormularioNuevaRutina() {
         onChange={(e) => setName(e.target.value)}
         maxLength={NOMBRE_RUTINA_MAX}
         hint={`${name.length}/${NOMBRE_RUTINA_MAX} caracteres`}
-        placeholder="Empuje Tiron Pierna"
+        placeholder="Empuje Tirón Pierna"
       />
       <div className="grid grid-cols-2 gap-3">
         <Field
@@ -124,24 +132,27 @@ function ModalAnadirDia({
   const [name, setName] = useState('')
   const [tipo, setTipo] = useState<DayType>('custom')
   const [esDescanso, setEsDescanso] = useState(false)
+  const [diaSemana, setDiaSemana] = useState('')
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     await crearDia.mutateAsync({
       routine: routineId,
-      name: name.trim() || (esDescanso ? 'Descanso' : `Dia ${siguienteOrden}`),
+      name: name.trim() || (esDescanso ? 'Descanso' : `Día ${siguienteOrden}`),
       type: tipo,
       is_rest: esDescanso,
       order: siguienteOrden,
+      description: diaSemana,
     })
     setName('')
     setTipo('custom')
     setEsDescanso(false)
+    setDiaSemana('')
     onClose()
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Anadir dia">
+    <Modal open={open} onClose={onClose} title="Añadir día">
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
         <Field
           label="Nombre"
@@ -151,6 +162,24 @@ function ModalAnadirDia({
           hint={`${name.length}/${NOMBRE_DIA_MAX} caracteres`}
           placeholder={esDescanso ? 'Descanso' : 'Pecho'}
         />
+        <div>
+          <label htmlFor="dia-semana" className="mb-1.5 block text-sm font-medium text-fg-muted">
+            Día de la semana
+          </label>
+          <select
+            id="dia-semana"
+            value={diaSemana}
+            onChange={(e) => setDiaSemana(e.target.value)}
+            className="h-12 w-full rounded-[14px] border border-border bg-surface-2 px-4 text-fg focus:border-primary"
+          >
+            <option value="">Sin asignar</option>
+            {DIAS_SEMANA.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </div>
         <label className="flex h-11 items-center gap-2 text-sm text-fg">
           <input
             type="checkbox"
@@ -158,12 +187,12 @@ function ModalAnadirDia({
             onChange={(e) => setEsDescanso(e.target.checked)}
             className="h-5 w-5 rounded border-border"
           />
-          Es un dia de descanso
+          Es un día de descanso
         </label>
         {!esDescanso ? (
           <div>
             <label htmlFor="tipo-dia" className="mb-1.5 block text-sm font-medium text-fg-muted">
-              Tipo de dia
+              Tipo de día
             </label>
             <select
               id="tipo-dia"
@@ -180,7 +209,7 @@ function ModalAnadirDia({
           </div>
         ) : null}
         <Button type="submit" full disabled={crearDia.isPending}>
-          {crearDia.isPending ? 'Anadiendo...' : 'Anadir dia'}
+          {crearDia.isPending ? 'Añadiendo...' : 'Añadir día'}
         </Button>
       </form>
     </Modal>
@@ -200,12 +229,14 @@ function ModalEditarDia({
   const [name, setName] = useState('')
   const [tipo, setTipo] = useState<DayType>('custom')
   const [esDescanso, setEsDescanso] = useState(false)
+  const [diaSemana, setDiaSemana] = useState('')
 
   useEffect(() => {
     if (!dia) return
     setName(dia.name)
     setTipo(dia.type)
     setEsDescanso(dia.is_rest)
+    setDiaSemana(DIAS_SEMANA.includes(dia.description) ? dia.description : '')
   }, [dia])
 
   async function onSubmit(e: React.FormEvent) {
@@ -213,13 +244,13 @@ function ModalEditarDia({
     if (!dia) return
     await actualizarDia.mutateAsync({
       dayId: dia.id,
-      body: { name: name.trim(), type: tipo, is_rest: esDescanso },
+      body: { name: name.trim(), type: tipo, is_rest: esDescanso, description: diaSemana },
     })
     onClose()
   }
 
   return (
-    <Modal open={dia !== null} onClose={onClose} title="Editar dia">
+    <Modal open={dia !== null} onClose={onClose} title="Editar día">
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
         <Field
           label="Nombre"
@@ -228,6 +259,24 @@ function ModalEditarDia({
           maxLength={NOMBRE_DIA_MAX}
           hint={`${name.length}/${NOMBRE_DIA_MAX} caracteres`}
         />
+        <div>
+          <label htmlFor="dia-semana-editar" className="mb-1.5 block text-sm font-medium text-fg-muted">
+            Día de la semana
+          </label>
+          <select
+            id="dia-semana-editar"
+            value={diaSemana}
+            onChange={(e) => setDiaSemana(e.target.value)}
+            className="h-12 w-full rounded-[14px] border border-border bg-surface-2 px-4 text-fg focus:border-primary"
+          >
+            <option value="">Sin asignar</option>
+            {DIAS_SEMANA.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </div>
         <label className="flex h-11 items-center gap-2 text-sm text-fg">
           <input
             type="checkbox"
@@ -235,12 +284,12 @@ function ModalEditarDia({
             onChange={(e) => setEsDescanso(e.target.checked)}
             className="h-5 w-5 rounded border-border"
           />
-          Es un dia de descanso
+          Es un día de descanso
         </label>
         {!esDescanso ? (
           <div>
             <label htmlFor="tipo-dia-editar" className="mb-1.5 block text-sm font-medium text-fg-muted">
-              Tipo de dia
+              Tipo de día
             </label>
             <select
               id="tipo-dia-editar"
@@ -318,12 +367,12 @@ function ModalAnadirEjercicio({
       })
       limpiarYcerrar()
     } catch {
-      setError('No se ha podido anadir el ejercicio. Prueba otra vez.')
+      setError('No se ha podido añadir el ejercicio. Prueba otra vez.')
     }
   }
 
   return (
-    <Modal open={dia !== null} onClose={limpiarYcerrar} title={`Anadir ejercicio a ${dia?.name ?? ''}`}>
+    <Modal open={dia !== null} onClose={limpiarYcerrar} title={`Añadir ejercicio a ${dia?.name ?? ''}`}>
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
         <ExercisePicker value={ejercicio} onChange={setEjercicio} />
         <div className="grid grid-cols-2 gap-3">
@@ -364,7 +413,7 @@ function ModalAnadirEjercicio({
         </div>
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         <Button type="submit" full disabled={anadir.isPending}>
-          {anadir.isPending ? 'Anadiendo...' : 'Anadir ejercicio'}
+          {anadir.isPending ? 'Añadiendo...' : 'Añadir ejercicio'}
         </Button>
       </form>
     </Modal>
@@ -396,13 +445,18 @@ function DiaCard({
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           {dia.is_rest ? <BedDouble size={18} className="text-fg-subtle" aria-hidden="true" /> : null}
-          <p className="font-display text-xl">{dia.name || `Dia ${dia.order}`}</p>
+          <p className="font-display text-xl">{dia.name || `Día ${dia.order}`}</p>
+          {DIAS_SEMANA.includes(dia.description) ? (
+            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-fg-muted">
+              {dia.description}
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => onPedirEditar(dia)}
-            aria-label={`Editar dia ${dia.name}`}
+            aria-label={`Editar día ${dia.name}`}
             className="flex h-10 w-10 items-center justify-center rounded-full text-fg-subtle transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
           >
             <Pencil size={16} aria-hidden="true" />
@@ -410,7 +464,7 @@ function DiaCard({
           <button
             type="button"
             onClick={() => setConfirmarBorrado(true)}
-            aria-label={`Eliminar dia ${dia.name}`}
+            aria-label={`Eliminar día ${dia.name}`}
             className="flex h-10 w-10 items-center justify-center rounded-full text-fg-subtle transition-colors duration-150 hover:bg-danger/10 hover:text-danger"
           >
             <Trash2 size={18} aria-hidden="true" />
@@ -419,11 +473,11 @@ function DiaCard({
       </div>
 
       {dia.is_rest ? (
-        <p className="text-sm text-fg-muted">Dia de descanso</p>
+        <p className="text-sm text-fg-muted">Día de descanso</p>
       ) : (
         <>
           {entries.length === 0 ? (
-            <p className="mb-2 text-sm text-fg-muted">Sin ejercicios todavia</p>
+            <p className="mb-2 text-sm text-fg-muted">Sin ejercicios todavía</p>
           ) : (
             <ul className="mb-2 space-y-1.5">
               {entries.map(({ entry, slotId, esUnicaEnElSlot }) => (
@@ -455,7 +509,7 @@ function DiaCard({
           )}
           <Button variant="secondary" size="sm" onClick={() => onPedirAnadirEjercicio(dia)}>
             <Plus size={16} aria-hidden="true" />
-            Anadir ejercicio
+            Añadir ejercicio
           </Button>
         </>
       )}
@@ -465,7 +519,7 @@ function DiaCard({
         onClose={() => setConfirmarBorrado(false)}
         onConfirm={() => void eliminarDia.mutateAsync(dia.id)}
         title={`Eliminar "${dia.name}"`}
-        description="Se borraran tambien todos sus ejercicios configurados. No se puede deshacer."
+        description="Se borrarán también todos sus ejercicios configurados. No se puede deshacer."
       />
     </Card>
   )
@@ -541,15 +595,15 @@ function EditorDeRutina({ routineId }: { routineId: number }) {
       </Card>
 
       <div className="mb-3 flex items-center justify-between">
-        <SectionLabel>Dias de la rutina</SectionLabel>
+        <SectionLabel>Días de la rutina</SectionLabel>
         <Button variant="secondary" size="sm" onClick={() => setModalDiaAbierto(true)}>
           <Plus size={16} aria-hidden="true" />
-          Anadir dia
+          Añadir día
         </Button>
       </div>
 
       {dias.length === 0 ? (
-        <p className="text-sm text-fg-muted">Todavia no has anadido ningun dia.</p>
+        <p className="text-sm text-fg-muted">Todavía no has añadido ningún día.</p>
       ) : (
         <ul className="space-y-3">
           {dias.map((dia) => (

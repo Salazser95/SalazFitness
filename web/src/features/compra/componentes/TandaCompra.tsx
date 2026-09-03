@@ -17,14 +17,14 @@ import type { CategoriaFrescura, ShoppingListItem } from '../tipos'
 const ETIQUETA_CATEGORIA: Record<CategoriaFrescura, string> = {
   despensa: 'Despensa',
   congelado: 'Congelado',
-  lacteo: 'Lacteos',
+  lacteo: 'Lácteos',
   fruta: 'Fruta',
   fruta_delicada: 'Fruta delicada',
   verdura: 'Verdura',
   carne: 'Carne',
   pescado: 'Pescado',
   huevos: 'Huevos',
-  panaderia: 'Panaderia',
+  panaderia: 'Panadería',
 }
 
 export function etiquetaCategoria(categoria: CategoriaFrescura | ''): string {
@@ -53,10 +53,10 @@ function textoCuando(fecha: string | null, hoy: string): string {
   const dias = Math.round(
     (new Date(`${fecha}T00:00:00`).getTime() - new Date(`${hoy}T00:00:00`).getTime()) / 86_400_000,
   )
-  if (dias === 1) return 'Manana'
+  if (dias === 1) return 'Mañana'
   if (dias === -1) return 'Ayer'
-  if (dias > 1) return `En ${dias} dias · ${shortDate(fecha)}`
-  return `Hace ${Math.abs(dias)} dias · ${shortDate(fecha)}`
+  if (dias > 1) return `En ${dias} días · ${shortDate(fecha)}`
+  return `Hace ${Math.abs(dias)} días · ${shortDate(fecha)}`
 }
 
 export function CabeceraTanda({
@@ -88,7 +88,7 @@ export function CabeceraTanda({
     <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
       <div className="flex items-center gap-2">
         <SectionLabel>
-          {trip === 1 ? 'Compra grande' : `Reposicion ${trip - 1}`}
+          {trip === 1 ? 'Compra grande' : `Reposición ${trip - 1}`}
         </SectionLabel>
         <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${color}`}>
           {hecha ? 'Hecha' : textoCuando(fecha, hoy)}
@@ -104,7 +104,7 @@ export function CabeceraTanda({
 /** Las pistas de frescura de una linea: cuanto aguanta, si hay que congelarla. */
 export function PistasFrescura({ item }: { item: ShoppingListItem }) {
   const etiqueta = etiquetaCategoria(item.category)
-  const cubre = item.days_covered > 0 ? `para ${item.days_covered} dias` : ''
+  const cubre = item.days_covered > 0 ? `para ${item.days_covered} días` : ''
 
   return (
     <>
@@ -161,8 +161,8 @@ export function AvisoDeHoy({ items }: { items: ShoppingListItem[] }) {
           <p className="font-medium text-fg">Hoy toca comprar {pendientes.length} cosas</p>
           <p className="mt-0.5 text-sm text-fg-muted">
             {frescos.length > 0
-              ? `${frescos.length} de fresco, que no aguanta hasta la proxima compra.`
-              : 'Todo de despensa: aguanta el periodo entero.'}
+              ? `${frescos.length} de fresco, que no aguanta hasta la próxima compra.`
+              : 'Todo de despensa: aguanta el período entero.'}
           </p>
         </div>
       </div>

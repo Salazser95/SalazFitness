@@ -15,8 +15,8 @@ import {
 } from '../../components/ui'
 import { shortDate, today } from '../../lib/format'
 import { ActivarRutinaModal } from './components/ActivarRutinaModal'
-import { escribirRutinaActivaId } from './local'
 import {
+  escribirRutinaActivaId,
   useActiveRoutine,
   useDuplicarRutina,
   useEliminarRutina,
@@ -106,7 +106,7 @@ function ModalDuplicar({
         </div>
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         <p className="text-xs text-fg-subtle">
-          Se copian todos los dias, ejercicios y series configuradas, una peticion por cada uno:
+          Se copian todos los días, ejercicios y series configuradas, una petición por cada uno:
           en rutinas largas puede tardar cerca de un minuto. No cierres esta pantalla mientras
           dure.
         </p>
@@ -154,7 +154,7 @@ export default function RutinaDetallePage() {
   const esActiva = activeRoutine.data?.id === rutina.id
 
   function activar() {
-    escribirRutinaActivaId(rutina.id)
+    void escribirRutinaActivaId(rutina.id)
     const hoy = today()
     const cubreHoy = rutina.start <= hoy && hoy <= rutina.end
     if (!cubreHoy) setRutinaParaDesplazar(rutina)
@@ -199,7 +199,7 @@ export default function RutinaDetallePage() {
         </Button>
       </div>
 
-      <SectionLabel>Dias de la rutina</SectionLabel>
+      <SectionLabel>Días de la rutina</SectionLabel>
       <ul className="space-y-3">
         {[...rutina.days]
           .sort((a, b) => a.order - b.order)
@@ -210,11 +210,11 @@ export default function RutinaDetallePage() {
                   {day.is_rest ? (
                     <BedDouble size={18} className="text-fg-subtle" aria-hidden="true" />
                   ) : null}
-                  <p className="font-display text-xl">{day.name || `Dia ${day.order}`}</p>
+                  <p className="font-display text-xl">{day.name || `Día ${day.order}`}</p>
                 </div>
 
                 {day.is_rest ? (
-                  <p className="text-sm text-fg-muted">Dia de descanso</p>
+                  <p className="text-sm text-fg-muted">Día de descanso</p>
                 ) : day.slots.length === 0 ? (
                   <p className="text-sm text-fg-muted">Sin ejercicios configurados</p>
                 ) : (
@@ -259,7 +259,7 @@ export default function RutinaDetallePage() {
           navigate('/entreno')
         }}
         title={`Eliminar "${rutina.name}"`}
-        description="Se borraran tambien todos sus dias y ejercicios configurados. No se puede deshacer."
+        description="Se borrarán también todos sus días y ejercicios configurados. No se puede deshacer."
       />
 
       <ModalDuplicar

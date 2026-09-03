@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Apple, ChevronLeft, ChevronRight, Copy, GlassWater, Plus, Trash2, UtensilsCrossed } from 'lucide-react'
+import { Apple, Clock, Copy, GlassWater, Minus, Plus, Trash2, UtensilsCrossed } from 'lucide-react'
 
-import { Button, Card, EmptyState, ErrorState, SectionLabel, SkeletonList } from '../../components/ui'
+import { Button, Card, EmptyState, ErrorState, HeroStat, Pill, SectionLabel, SkeletonList } from '../../components/ui'
+import { DayNavigator } from '../../components/DayNavigator'
 import { AnotarRecetaModal } from '../compra/componentes/AnotarRecetaModal'
 import { recetaDelDia, usePlanSemana } from '../compra/planLocal'
 import {
-  MEAL_NAMES,
+  comidasOrdenadas,
   macrosFor,
-  mapaComidas,
   sumMacros,
   useAsegurarComidas,
   useCopiarDia,
@@ -19,11 +19,11 @@ import {
   usePlan,
   usePlanInfo,
 } from './api'
-import type { DiaryEntry, Ingredient, Macros, MealName } from './api'
+import type { DiaryEntry, Ingredient, Macros } from './api'
 import type { CoberturaComida } from '../compra/tipos'
 import { EtiquetaCompra, useEstadoCompraPorComida } from './EstadoCompra'
-import { AGUA_OBJETIVO_ML_DEFECTO, AGUA_VASO_ML, escribirAgua, leerAgua } from './local'
-import { int, num, shortDate, today } from '../../lib/format'
+import { AGUA_OBJETIVO_ML_DEFECTO, AGUA_VASO_ML, useAgua, useEscribirAgua } from './local'
+import { addDays, int, num, today } from '../../lib/format'
 
 const MACRO_COLOR: Record<'protein' | 'carbohydrates' | 'fat', string> = {
   protein: '#22D3EE',
@@ -32,19 +32,12 @@ const MACRO_COLOR: Record<'protein' | 'carbohydrates' | 'fat', string> = {
 }
 
 const MACRO_LABEL: Record<'protein' | 'carbohydrates' | 'fat', string> = {
-  protein: 'Proteina',
+  protein: 'Proteína',
   carbohydrates: 'Hidratos',
   fat: 'Grasa',
 }
 
 const MACROS_VACIOS: Macros = { energy: 0, protein: 0, carbohydrates: 0, fat: 0, fiber: 0 }
-
-function sumarDias(fechaIso: string, delta: number): string {
-  const d = new Date(`${fechaIso}T00:00:00`)
-  d.setDate(d.getDate() + delta)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
 
 type EntradaConMacros = {
   entrada: DiaryEntry
@@ -52,53 +45,8 @@ type EntradaConMacros = {
   macros: Macros | null
 }
 
-function SelectorFecha({
-  fecha,
-  onCambiar,
-}: {
-  fecha: string
-  onCambiar: (siguiente: string) => void
-}) {
-  return (
-    <Card className="flex items-center justify-between gap-2 px-3 py-2.5">
-      <button
-        type="button"
-        className="rounded-[10px] p-2 text-fg-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
-        aria-label="Dia anterior"
-        onClick={() => onCambiar(sumarDias(fecha, -1))}
-      >
-        <ChevronLeft size={20} aria-hidden="true" />
-      </button>
-      <div className="text-center">
-        <p className="font-display text-lg capitalize leading-tight text-fg">
-          {shortDate(`${fecha}T00:00:00`)}
-        </p>
-        {fecha !== today() ? (
-          <button
-            type="button"
-            className="text-xs font-medium text-accent hover:underline"
-            onClick={() => onCambiar(today())}
-          >
-            Hoy
-          </button>
-        ) : (
-          <span className="text-xs text-fg-subtle">Hoy</span>
-        )}
-      </div>
-      <button
-        type="button"
-        className="rounded-[10px] p-2 text-fg-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg"
-        aria-label="Dia siguiente"
-        onClick={() => onCambiar(sumarDias(fecha, 1))}
-      >
-        <ChevronRight size={20} aria-hidden="true" />
-      </button>
-    </Card>
-  )
-}
-
 function BotonCopiarDia({ planId, fecha }: { planId: string | undefined; fecha: string }) {
-  const anterior = sumarDias(fecha, -1)
+  const anterior = addDays(fecha, -1)
   const copiar = useCopiarDia(planId, fecha)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
@@ -107,7 +55,7 @@ function BotonCopiarDia({ planId, fecha }: { planId: string | undefined; fecha: 
     copiar.mutate(anterior, {
       onSuccess: (cantidad) => {
         setMensaje(
-          cantidad > 0 ? `Copiados ${cantidad} alimentos.` : 'El dia anterior no tiene registros.',
+          cantidad > 0 ? `Copiados ${cantidad} alimentos.` : 'El día anterior no tiene registros.',
         )
       },
     })
@@ -120,12 +68,12 @@ function BotonCopiarDia({ planId, fecha }: { planId: string | undefined; fecha: 
         {copiar.isPending
           ? 'Copiando...'
           : fecha === today()
-            ? 'Copiar el dia de ayer'
-            : 'Copiar el dia anterior'}
+            ? 'Copiar el día de ayer'
+            : 'Copiar el día anterior'}
       </Button>
       {mensaje ? <p className="text-xs text-fg-subtle">{mensaje}</p> : null}
       {copiar.isError ? (
-        <p className="text-xs text-danger">No se pudo copiar. Intentalo de nuevo.</p>
+        <p className="text-xs text-danger">No se pudo copiar. Inténtalo de nuevo.</p>
       ) : null}
     </div>
   )
@@ -145,16 +93,16 @@ function TarjetaRecetaDelDia({ fecha }: { fecha: string }) {
 
   return (
     <>
-      <Card className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 rounded-[14px] bg-surface-2 px-3 py-2.5">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">Receta planificada</p>
           <p className="truncate text-fg">{asignacion.recipeName}</p>
         </div>
         <Button size="sm" onClick={() => setAbierto(true)}>
           <UtensilsCrossed size={16} aria-hidden="true" />
-          {fecha === today() ? 'Anotar la receta de hoy' : 'Anotar la receta de este dia'}
+          {fecha === today() ? 'Anotar la receta de hoy' : 'Anotar la receta de este día'}
         </Button>
-      </Card>
+      </div>
       <AnotarRecetaModal recipeId={asignacion.recipeId} open={abierto} onClose={() => setAbierto(false)} fecha={fecha} />
     </>
   )
@@ -194,35 +142,40 @@ function FilaAlimento({ item, onEliminar }: { item: EntradaConMacros; onEliminar
   const { entrada, ingrediente, macros } = item
   return (
     <li className="flex items-center justify-between gap-3 rounded-[14px] bg-surface-2 px-3 py-2.5">
-      <div className="min-w-0">
-        <p className="truncate text-sm text-fg">{ingrediente?.name ?? 'Alimento'}</p>
-        <p className="tnum text-xs text-fg-subtle">
-          {num(entrada.amount)} g · {macros ? int(macros.energy) : '-'} kcal
+      <p className="min-w-0 truncate text-sm text-fg">{ingrediente?.name ?? 'Alimento'}</p>
+      <div className="flex shrink-0 items-center gap-3">
+        <p className="tnum text-right text-xs text-fg-subtle">
+          <span className="block">{num(entrada.amount)} g</span>
+          <span className="block">{macros ? int(macros.energy) : '-'} kcal</span>
         </p>
+        <button
+          type="button"
+          className="rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-danger"
+          aria-label={`Eliminar ${ingrediente?.name ?? 'alimento'}`}
+          onClick={() => onEliminar(entrada.id)}
+        >
+          <Trash2 size={16} aria-hidden="true" />
+        </button>
       </div>
-      <button
-        type="button"
-        className="shrink-0 rounded-[10px] p-2 text-fg-subtle transition-colors duration-150 hover:bg-surface-3 hover:text-danger"
-        aria-label={`Eliminar ${ingrediente?.name ?? 'alimento'}`}
-        onClick={() => onEliminar(entrada.id)}
-      >
-        <Trash2 size={16} aria-hidden="true" />
-      </button>
     </li>
   )
 }
 
 function SeccionComida({
   nombre,
+  hora,
   mealId,
   items,
+  kcal,
   estadoCompra,
   onAgregar,
   onEliminar,
 }: {
-  nombre: MealName
+  nombre: string
+  hora: string | null
   mealId: string | undefined
   items: EntradaConMacros[]
+  kcal: number
   /** Si sus alimentos estan comprados. Undefined si no hay lista de la compra. */
   estadoCompra: CoberturaComida | undefined
   onAgregar: () => void
@@ -231,17 +184,29 @@ function SeccionComida({
   return (
     <Card>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <SectionLabel>{nombre}</SectionLabel>
-          <EtiquetaCompra estado={estadoCompra} />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-display text-xl leading-tight text-fg">{nombre}</p>
+            {hora ? <Pill icon={Clock}>{hora.slice(0, 5)}</Pill> : null}
+            <EtiquetaCompra estado={estadoCompra} />
+          </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={onAgregar} disabled={!mealId}>
-          <Plus size={16} aria-hidden="true" />
-          Anadir
-        </Button>
+        <div className="flex items-center gap-2">
+          {items.length > 0 ? (
+            <p className="font-display text-2xl tnum leading-none text-fg-muted">{int(kcal)}</p>
+          ) : null}
+          <div className="hidden lg:block">
+            <Button variant="ghost" size="sm" onClick={onAgregar} disabled={!mealId}>
+              <Plus size={16} aria-hidden="true" />
+              Añadir
+            </Button>
+          </div>
+        </div>
       </div>
       {items.length === 0 ? (
-        <p className="py-2 text-sm text-fg-subtle">Sin alimentos todavia.</p>
+        <p className="rounded-[14px] border border-dashed border-border py-3 text-center text-sm text-fg-subtle">
+          Sin alimentos todavía.
+        </p>
       ) : (
         <ul className="space-y-2">
           {items.map((item) => (
@@ -249,48 +214,63 @@ function SeccionComida({
           ))}
         </ul>
       )}
+      <Button variant="ghost" size="sm" full onClick={onAgregar} disabled={!mealId} className="mt-3 lg:hidden">
+        <Plus size={16} aria-hidden="true" />
+        Añadir
+      </Button>
     </Card>
   )
 }
 
 function TarjetaAgua({ fecha }: { fecha: string }) {
-  const [aguaMl, setAguaMl] = useState(0)
-
-  useEffect(() => {
-    setAguaMl(leerAgua(fecha))
-  }, [fecha])
+  // Del servidor (ver salaz/models/water_log.py): antes vivia en
+  // localStorage y por eso no se veia igual en el PC y en el iPhone.
+  const agua = useAgua(fecha)
+  const escribir = useEscribirAgua(fecha)
+  const aguaMl = agua.data ?? 0
 
   function cambiar(delta: number) {
-    setAguaMl(escribirAgua(fecha, aguaMl + delta))
+    escribir.mutate(Math.max(0, aguaMl + delta))
   }
 
   const pct = Math.min(100, (aguaMl / AGUA_OBJETIVO_ML_DEFECTO) * 100)
 
   return (
     <Card>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="flex items-center justify-between">
         <SectionLabel>Agua</SectionLabel>
-        <span className="tnum text-sm text-fg-muted">
-          {num(aguaMl / 1000)} / {num(AGUA_OBJETIVO_ML_DEFECTO / 1000)} l
-        </span>
+        <GlassWater size={16} className="text-accent" aria-hidden="true" />
       </div>
-      <div className="mb-3 h-2 w-full overflow-hidden rounded-full bg-surface-2">
-        <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
-      </div>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
+      <div className="mt-3 flex items-center justify-center gap-5">
+        <button
+          type="button"
           onClick={() => cambiar(-AGUA_VASO_ML)}
           disabled={aguaMl <= 0}
+          aria-label="Quitar un vaso de 250 ml"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-surface-2 text-fg transition-colors duration-150 hover:bg-surface-3 disabled:opacity-30"
         >
-          -1 vaso
-        </Button>
-        <Button variant="accent" size="sm" onClick={() => cambiar(AGUA_VASO_ML)}>
-          <GlassWater size={16} aria-hidden="true" />
-          +1 vaso (250 ml)
-        </Button>
+          <Minus size={18} aria-hidden="true" />
+        </button>
+        <p className="font-display text-4xl leading-none tnum text-accent">
+          {num(aguaMl / 1000)}
+          <span className="ml-1 text-lg text-fg-muted">/ {num(AGUA_OBJETIVO_ML_DEFECTO / 1000)} l</span>
+        </p>
+        <button
+          type="button"
+          onClick={() => cambiar(AGUA_VASO_ML)}
+          aria-label="Añadir un vaso de 250 ml"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-surface-2 text-fg transition-colors duration-150 hover:bg-surface-3"
+        >
+          <Plus size={18} aria-hidden="true" />
+        </button>
       </div>
+      <p className="mt-1 text-center text-xs text-fg-subtle">1 vaso = 250 ml</p>
+      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-surface-2">
+        <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+      </div>
+      {escribir.isError ? (
+        <p className="mt-2 text-sm text-danger">No se pudo guardar. Inténtalo de nuevo.</p>
+      ) : null}
     </Card>
   )
 }
@@ -319,8 +299,8 @@ export default function DiarioPage() {
     return (
       <EmptyState
         icon={Apple}
-        title="Todavia no tienes un plan nutricional"
-        description="Crea uno de registro para empezar a apuntar lo que comes. Los objetivos parten de tus calorias de perfil y se pueden ajustar despues en Objetivos."
+        title="Todavía no tienes un plan nutricional"
+        description="Crea uno de registro para empezar a apuntar lo que comes. Los objetivos parten de tus calorías de perfil y se pueden ajustar después en Objetivos."
         action={{
           label: crearPlan.isPending ? 'Creando...' : 'Crear plan',
           onClick: () => crearPlan.mutate(),
@@ -334,7 +314,7 @@ export default function DiarioPage() {
     return <ErrorState onRetry={() => { planInfo.refetch(); diario.refetch() }} />
   }
 
-  const comidas = mapaComidas(planInfo.data)
+  const comidas = comidasOrdenadas(planInfo.data)
   const mapaIngr = ingredientes.data
 
   const entradasConMacros: EntradaConMacros[] = (diario.data ?? []).map((entrada) => {
@@ -344,53 +324,75 @@ export default function DiarioPage() {
   })
 
   const totalDia = sumMacros(entradasConMacros.map((x) => x.macros ?? MACROS_VACIOS))
+  const restantes = plan.data.goal_energy ? plan.data.goal_energy - totalDia.energy : null
+  const pctEnergia =
+    plan.data.goal_energy && plan.data.goal_energy > 0
+      ? Math.min(100, (totalDia.energy / plan.data.goal_energy) * 100)
+      : 0
 
   return (
     <div className="animate-rise space-y-5">
-      <SelectorFecha fecha={fecha} onCambiar={setFecha} />
+      <DayNavigator fecha={fecha} onFechaChange={setFecha} />
 
-      <BotonCopiarDia planId={planId} fecha={fecha} />
-
-      <TarjetaRecetaDelDia fecha={fecha} />
-
-      <Card className="text-center">
-        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">
-          Calorias de hoy
-        </p>
-        <p className="font-display text-6xl leading-none tnum text-fg">
-          {int(totalDia.energy)}
-          <span className="ml-2 text-2xl text-fg-muted">
-            {plan.data.goal_energy ? `/ ${int(plan.data.goal_energy)} kcal` : 'kcal'}
-          </span>
-        </p>
-        <div className="mt-5 space-y-3 text-left">
-          <BarraMacro tipo="protein" gramos={totalDia.protein} objetivo={plan.data.goal_protein} />
-          <BarraMacro
-            tipo="carbohydrates"
-            gramos={totalDia.carbohydrates}
-            objetivo={plan.data.goal_carbohydrates}
-          />
-          <BarraMacro tipo="fat" gramos={totalDia.fat} objetivo={plan.data.goal_fat} />
+      <Card className="p-5">
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-center lg:gap-6">
+          <div>
+            <HeroStat label="Calorías" value={int(totalDia.energy)} unit="kcal" accent="fg" />
+            {restantes !== null ? (
+              <p
+                className={`mt-1 font-display text-3xl leading-none tnum ${restantes >= 0 ? 'text-primary' : 'text-warning'}`}
+              >
+                {restantes >= 0 ? restantes : Math.abs(restantes)}
+                <span className="ml-1 text-base text-fg-muted">
+                  kcal {restantes >= 0 ? 'restantes' : 'de más'}
+                </span>
+              </p>
+            ) : null}
+          </div>
+          <div className="mt-4 space-y-3 lg:mt-0">
+            {plan.data.goal_energy ? (
+              <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
+                <div className="h-full rounded-full bg-primary" style={{ width: `${pctEnergia}%` }} />
+              </div>
+            ) : null}
+            <BarraMacro tipo="protein" gramos={totalDia.protein} objetivo={plan.data.goal_protein} />
+            <BarraMacro
+              tipo="carbohydrates"
+              gramos={totalDia.carbohydrates}
+              objetivo={plan.data.goal_carbohydrates}
+            />
+            <BarraMacro tipo="fat" gramos={totalDia.fat} objetivo={plan.data.goal_fat} />
+          </div>
         </div>
       </Card>
 
-      {MEAL_NAMES.map((nombre) => {
-        const meal = comidas.get(nombre)
-        const items = entradasConMacros.filter((x) => meal && x.entrada.meal === meal.id)
+      {comidas.map((meal, i) => {
+        const items = entradasConMacros.filter((x) => x.entrada.meal === meal.id)
+        const kcal = sumMacros(items.map((x) => x.macros ?? MACROS_VACIOS)).energy
         return (
-          <SeccionComida
-            key={nombre}
-            nombre={nombre}
-            mealId={meal?.id}
-            items={items}
-            estadoCompra={meal ? estadoCompra?.get(meal.id) : undefined}
-            onAgregar={() => meal && navigate(`/nutricion/buscar?meal=${meal.id}&fecha=${fecha}`)}
-            onEliminar={(id) => eliminar.mutate(id)}
-          />
+          <div key={meal.id} className="animate-rise" style={{ animationDelay: `${Math.min(i, 7) * 40}ms` }}>
+            <SeccionComida
+              nombre={meal.name}
+              hora={meal.time}
+              mealId={meal.id}
+              items={items}
+              kcal={kcal}
+              estadoCompra={estadoCompra?.get(meal.id)}
+              onAgregar={() => navigate(`/nutricion/buscar?meal=${meal.id}&fecha=${fecha}`)}
+              onEliminar={(id) => eliminar.mutate(id)}
+            />
+          </div>
         )
       })}
 
-      <TarjetaAgua fecha={fecha} />
+      <div className="space-y-5 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
+        <TarjetaAgua fecha={fecha} />
+        <Card className="space-y-3">
+          <SectionLabel>Atajos</SectionLabel>
+          <BotonCopiarDia planId={planId} fecha={fecha} />
+          <TarjetaRecetaDelDia fecha={fecha} />
+        </Card>
+      </div>
     </div>
   )
 }

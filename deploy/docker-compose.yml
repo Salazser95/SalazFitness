@@ -49,6 +49,11 @@ services:
       SALAZ_ALLOWED_HOSTS: ${SALAZ_ALLOWED_HOSTS}
       SALAZ_APP_URL: ${SALAZ_APP_URL}
       SALAZ_FORCE_HTTPS: ${SALAZ_FORCE_HTTPS:-1}
+      # En blanco, Django la calcula sola a partir de SALAZ_ALLOWED_HOSTS. Se
+      # pasa aparte (ver deploy/.env.example) porque hace falta explicita
+      # cuando SALAZ_ALLOWED_HOSTS lleva un comodin, como con el tunel rapido
+      # de Cloudflare.
+      SALAZ_CSRF_ORIGINS: ${SALAZ_CSRF_ORIGINS:-}
       SALAZ_DB_NAME: ${SALAZ_DB_NAME}
       SALAZ_DB_USER: ${SALAZ_DB_USER}
       SALAZ_DB_PASSWORD: ${SALAZ_DB_PASSWORD}
@@ -59,15 +64,31 @@ services:
       SALAZ_EMAIL_USER: ${SALAZ_EMAIL_USER}
       SALAZ_EMAIL_PASSWORD: ${SALAZ_EMAIL_PASSWORD}
       SALAZ_EMAIL_TLS: ${SALAZ_EMAIL_TLS:-1}
+      SALAZ_EMAIL_CONSOLA: ${SALAZ_EMAIL_CONSOLA:-}
       SALAZ_EMAIL_FROM: ${SALAZ_EMAIL_FROM}
       SALAZ_CORS_ORIGINS: ${SALAZ_CORS_ORIGINS:-}
       SALAZ_CREAR_USUARIO_PRUEBA: ${SALAZ_CREAR_USUARIO_PRUEBA:-}
+      # Clave RSA del login de la app (ver deploy/.env.example). Vacio es
+      # valido: se genera una nueva en cada arranque si no se pone.
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      # Transcripcion automatica de la foto del ticket (ver
+      # salaz/tickets_vision.py). Vacio es valido: sin clave, /transcribir/
+      # devuelve un error controlado y el usuario sigue pudiendo escribir o
+      # pegar el texto a mano.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - estaticos:/srv/salaz/static
       - subidas:/srv/salaz/media
 
   web:
-    image: nginx:1.27-alpine
+    # La PWA se compila dentro de Docker (ver deploy/Dockerfile.web), asi que
+    # para levantar el servidor no hace falta tener Node instalado. Tras
+    # cambiar codigo del frontend hay que reconstruir:
+    #   docker compose build web
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
     restart: unless-stopped
     depends_on:
       - api
@@ -75,8 +96,6 @@ services:
       - '80:80'
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # La PWA ya compilada. Se genera con `npm run build` en web/.
-      - ../web/dist:/usr/share/nginx/html:ro
       - estaticos:/srv/salaz/static:ro
       - subidas:/srv/salaz/media:ro
 

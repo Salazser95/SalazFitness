@@ -41,6 +41,6 @@ export const useAuth = create<AuthState>((set) => ({
 
   expire: () => {
     localStorage.removeItem('salaz.username')
-    set({ authenticated: false, username: null, error: 'La sesion ha caducado' })
+    set({ authenticated: false, username: null, error: 'La sesión ha caducado' })
   },
 }))

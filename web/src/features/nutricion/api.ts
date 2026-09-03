@@ -94,12 +94,14 @@ export type UserProfile = {
   calories: number | null
 }
 
-// ------------------------------------------------------ comidas fijas
+// ------------------------------------------------------ comidas del plan
 
 // wger no tiene un enum de tipo de comida: son objetos `meal` con nombre
-// libre. SalazFitness usa siempre estos cuatro, creandolos la primera vez.
+// libre, propios de cada plan. Estos cuatro son solo la semilla inicial de
+// un plan nuevo (ver useCrearPlan y useAsegurarComidas); a partir de ahi el
+// usuario anade, renombra o borra las que quiera (PlanPage.tsx, seccion
+// "Comidas del plan") y esas ya NO son un tipo fijo en ningun otro sitio.
 export const MEAL_NAMES = ['Desayuno', 'Comida', 'Cena', 'Snacks'] as const
-export type MealName = (typeof MEAL_NAMES)[number]
 
 // ------------------------------------------------------------- macros
 
@@ -282,7 +284,7 @@ export function useCrearPlan() {
       await Promise.all(
         MEAL_NAMES.map((name) => api.post('/api/v2/meal/', { plan: plan.id, name })),
       )
-      escribirPlanActivoId(plan.id)
+      await escribirPlanActivoId(plan.id)
       return plan
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['nutricion'] }),
@@ -302,9 +304,13 @@ function useCrearComidasFaltantes(planId: string | undefined) {
 }
 
 /**
- * Se asegura de que existan las cuatro comidas fijas en el plan. Se llama
- * una vez por plan (guardado con un ref, para no duplicar aunque el efecto
- * se dispare varias veces en StrictMode).
+ * Siembra las cuatro comidas por defecto SOLO si el plan no tiene ninguna
+ * (red de seguridad para un plan que por lo que sea llego vacio, no un
+ * "recrear lo que falte"): las comidas son libres, el usuario puede
+ * anadir, renombrar o borrar las que quiera (ver useCrearComida,
+ * useActualizarComida, useEliminarComida) y un borrado tiene que quedarse
+ * borrado. Se llama una vez por plan (guardado con un ref, para no
+ * duplicar aunque el efecto se dispare varias veces en StrictMode).
  */
 export function useAsegurarComidas(planInfo: NutritionPlanInfo | undefined): {
   listo: boolean
@@ -315,24 +321,34 @@ export function useAsegurarComidas(planInfo: NutritionPlanInfo | undefined): {
 
   useEffect(() => {
     if (!planInfo) return
-    const faltantes = MEAL_NAMES.filter((n) => !planInfo.meals.some((m) => m.name === n))
-    if (faltantes.length === 0 || iniciadoRef.current) return
+    if (planInfo.meals.length > 0 || iniciadoRef.current) return
     iniciadoRef.current = true
-    mut.mutate(faltantes)
+    mut.mutate([...MEAL_NAMES])
   }, [planInfo, mut])
 
-  const listo = !!planInfo && MEAL_NAMES.every((n) => planInfo.meals.some((m) => m.name === n))
+  const listo = !!planInfo && planInfo.meals.length > 0
   return { listo, creando: mut.isPending }
 }
 
-export function mapaComidas(planInfo: NutritionPlanInfo | undefined): Map<MealName, Meal> {
-  const mapa = new Map<MealName, Meal>()
-  if (!planInfo) return mapa
-  for (const nombre of MEAL_NAMES) {
-    const encontrada = planInfo.meals.find((m) => m.name === nombre)
-    if (encontrada) mapa.set(nombre, encontrada)
-  }
-  return mapa
+/** Anade una comida nueva al plan, con el nombre que elija el usuario. */
+export function useCrearComida(planId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => api.post<Meal>('/api/v2/meal/', { plan: planId, name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.planInfo(planId) }),
+  })
+}
+
+/**
+ * Las comidas de un plan, ordenadas de forma estable. Generica sobre el
+ * tipo exacto de `meals` (Meal[] o MealConItems[]) para no perder el campo
+ * `meal_items` cuando quien llama lo necesita (PlanPage.tsx).
+ */
+export function comidasOrdenadas<T extends Pick<Meal, 'id' | 'order'>>(
+  planInfo: { meals: T[] } | undefined,
+): T[] {
+  if (!planInfo) return []
+  return [...planInfo.meals].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
 }
 
 /** Un POST a nutritiondiary con la hora fija al mediodia (la app agrupa por comida, no por hora exacta). */
@@ -428,7 +444,7 @@ export function useBuscarPorCodigo() {
 export function useElegirPlanActivo(): (id: string) => void {
   // No hace falta invalidar nada: no cambia ningun dato del servidor. Basta
   // con escribir la preferencia; `escribirPlanActivoId` ya avisa a `usePlan`.
-  return (id: string) => escribirPlanActivoId(id)
+  return (id: string) => void escribirPlanActivoId(id)
 }
 
 /**
@@ -441,8 +457,8 @@ export function useEliminarPlan() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.del(`/api/v2/nutritionplan/${id}/`),
-    onSuccess: (_data, id) => {
-      if (leerPlanActivoId() === id) escribirPlanActivoId(null)
+    onSuccess: async (_data, id) => {
+      if ((await leerPlanActivoId()) === id) await escribirPlanActivoId(null)
       qc.invalidateQueries({ queryKey: ['nutricion'] })
     },
   })
@@ -486,7 +502,7 @@ export function useDuplicarPlan() {
           ),
         )
       }
-      escribirPlanActivoId(nuevo.id)
+      await escribirPlanActivoId(nuevo.id)
       return nuevo
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['nutricion'] }),

@@ -17,6 +17,7 @@ La cuenta se crea con `is_active=False`. wger ya rechaza el login de un usuario
 inactivo, asi que la verificacion queda impuesta sin modificar nada de wger.
 """
 
+import logging
 from datetime import timedelta
 
 from django.conf import settings
@@ -33,8 +34,11 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.viewsets import ViewSet
 
+from salaz.exportacion import exportar_datos_usuario, importar_datos_usuario
 from salaz.models import AccountVerification
 
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -281,3 +285,57 @@ class AccountViewSet(ViewSet):
                 'pending_since': verificacion.created if verificacion and not verificacion.verified else None,
             }
         )
+
+    @action(detail=False, methods=['get'], url_path='exportar-todo', permission_classes=[IsAuthenticated])
+    def exportar_todo(self, request):
+        """
+        Descarga entreno, nutricion, compra, peso y perfil en un unico JSON.
+        Pensado para llevarlo de una instalacion a otra: ver importar_todo,
+        que consume exactamente este formato (ver salaz/exportacion.py).
+        """
+        try:
+            datos = exportar_datos_usuario(request.user, request.get_host())
+        except Exception:
+            # Sin esto, un fallo aqui (por ejemplo de configuracion, no del
+            # dato en si) se traga el traceback: DEBUG=False no lo imprime a
+            # consola y no hay ADMINS configurados para el correo de error.
+            logger.exception('exportar_todo ha fallado para %s', request.user.username)
+            return Response(
+                {'detail': 'No se ha podido generar la exportacion. Revisa los logs del servidor.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(
+            datos,
+            headers={
+                'Content-Disposition': 'attachment; filename="salazfitness-exportacion.json"',
+            },
+        )
+
+    @action(detail=False, methods=['post'], url_path='importar-todo', permission_classes=[IsAuthenticated])
+    def importar_todo(self, request):
+        """
+        Vuelve a montar, para el usuario que llama, un JSON generado por
+        exportar_todo (tipicamente de OTRA instalacion). Cada ejercicio y
+        cada alimento se resuelve por nombre contra el catalogo local antes
+        de escribir nada que dependa de el (ver salaz/exportacion.py):
+        nunca se copian ids de otra base de datos tal cual.
+
+        Responde 200 con el resumen de lo hecho (creados/omitidos/fallos)
+        incluso si algunas filas no se han podido importar -- una fila mal
+        formada no aborta el resto.
+        """
+        datos = request.data
+        if not isinstance(datos, dict):
+            return Response(
+                {'detail': 'El cuerpo tiene que ser el JSON de una exportacion.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            informe = importar_datos_usuario(request.user, datos, request.get_host())
+        except Exception:
+            logger.exception('importar_todo ha fallado para %s', request.user.username)
+            return Response(
+                {'detail': 'No se ha podido importar el fichero. Revisa los logs del servidor.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(informe)

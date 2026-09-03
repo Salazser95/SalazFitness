@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { Apple, Check, ListPlus, ShoppingCart, Trash2 } from 'lucide-react'
 
-import { Button, Card, ConfirmModal, EmptyState, ErrorState, Field, SectionLabel, SkeletonList, StatCard } from '../../components/ui'
+import { Button, Card, ConfirmModal, EmptyState, ErrorState, Field, Modal, SectionLabel, SkeletonList, StatCard } from '../../components/ui'
 import { eur, today } from '../../lib/format'
 import { supermercadoDefectoActual } from '../../lib/settings'
 import { eurosACentimos, sumarCentimos } from './calculo'
 import {
   fechaPorDefectoNuevaCompra,
   useEliminarLineaLista,
+  useEliminarLista,
+  useEliminarProductoLista,
   useGenerarLista,
   useGenerarListaDesdeNutricion,
   useHousehold,
@@ -46,6 +48,25 @@ export function Casilla({ marcado, onToggle, ariaLabel }: { marcado: boolean; on
       <Check size={22} aria-hidden="true" />
     </button>
   )
+}
+
+/**
+ * Todas las lineas de la lista, agrupadas por producto (a traves de tandas).
+ *
+ * Se agrupa por `group_key`, que asigna siempre el backend: nunca por nombre
+ * en el cliente. Dos lineas de texto libre con el mismo nombre en la misma
+ * lista (por ejemplo, dos "Miel" anadidas a mano) no son necesariamente el
+ * mismo producto, y agruparlas por nombre las fusionaria sin que el usuario
+ * lo pidiera. Ver group_key en backend/salaz/models/shopping_list_item.py.
+ */
+function agruparPorProducto(items: ShoppingListItem[]): Map<string, ShoppingListItem[]> {
+  const grupos = new Map<string, ShoppingListItem[]>()
+  for (const item of items) {
+    const grupo = grupos.get(item.group_key) ?? []
+    grupo.push(item)
+    grupos.set(item.group_key, grupo)
+  }
+  return grupos
 }
 
 /**
@@ -162,6 +183,8 @@ export default function ListaPage() {
   const listaItems = useListaItems(listaId)
   const marcar = useMarcarComprado()
   const eliminarItem = useEliminarLineaLista()
+  const eliminarProducto = useEliminarProductoLista()
+  const eliminarLista = useEliminarLista()
   const recetas = useRecipes(householdId)
   const generar = useGenerarLista()
   const planSemana = usePlanSemana()
@@ -170,7 +193,13 @@ export default function ListaPage() {
   const [fechaInicio, setFechaInicio] = useState(fechaPorDefectoNuevaCompra())
   const [fechaFin, setFechaFin] = useState(sumarDias(fechaPorDefectoNuevaCompra(), 7))
   const [recetasElegidas, setRecetasElegidas] = useState<number[]>([])
-  const [aBorrar, setABorrar] = useState<ShoppingListItem | null>(null)
+  // 'linea': confirmacion simple de una fila suelta (producto en una sola
+  // tanda). 'producto': el mismo producto esta repartido en varias tandas y
+  // hay que dejar elegir entre quitar solo esta fila o el producto entero.
+  const [aBorrar, setABorrar] = useState<
+    { tipo: 'linea'; item: ShoppingListItem } | { tipo: 'producto'; item: ShoppingListItem; grupo: ShoppingListItem[] } | null
+  >(null)
+  const [listaABorrar, setListaABorrar] = useState<{ id: number; household: number; lineas: number } | null>(null)
 
   function alternarReceta(id: number) {
     setRecetasElegidas((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]))
@@ -199,12 +228,35 @@ export default function ListaPage() {
     })
   }
 
+  /**
+   * Pulsar la papelera de una linea: si el producto solo esta en esta tanda
+   * se pide confirmacion simple (como hasta ahora); si esta repartido en
+   * varias, hay que dejar elegir que quitar antes de preguntar nada.
+   */
+  function onPulsarQuitar(item: ShoppingListItem, grupo: ShoppingListItem[]) {
+    const tandas = new Set(grupo.map((i) => i.trip)).size
+    setABorrar(tandas > 1 ? { tipo: 'producto', item, grupo } : { tipo: 'linea', item })
+  }
+
   function onEliminarItem() {
     if (!aBorrar) return
-    eliminarItem.mutate({ id: aBorrar.id, shopping_list: aBorrar.shopping_list })
+    eliminarItem.mutate({ id: aBorrar.item.id, shopping_list: aBorrar.item.shopping_list })
+  }
+
+  function onQuitarProductoEntero() {
+    if (!aBorrar || aBorrar.tipo !== 'producto') return
+    eliminarProducto.mutate({ groupKey: aBorrar.item.group_key, shopping_list: aBorrar.item.shopping_list })
+    setABorrar(null)
+  }
+
+  function onEliminarLista() {
+    if (!listaABorrar) return
+    eliminarLista.mutate({ id: listaABorrar.id, household: listaABorrar.household })
+    setListaABorrar(null)
   }
 
   const items = listaItems.data ?? []
+  const gruposProducto = agruparPorProducto(items)
   const comprados = items.filter((i) => i.purchased).length
   const totalEstimadoCentimos = sumarCentimos(items.map((i) => eurosACentimos(i.estimated_price)))
   // "Real" es lo ya gastado: la suma de lo marcado como comprado. El contrato
@@ -239,6 +291,16 @@ export default function ListaPage() {
             <ListPlus size={16} aria-hidden="true" />
             Desde recetas
           </Button>
+          {listaActiva.data ? (
+            <button
+              type="button"
+              aria-label="Borrar la lista entera"
+              onClick={() => setListaABorrar({ id: listaActiva.data!.id, household: householdId, lineas: items.length })}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
+            >
+              <Trash2 size={16} aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -366,7 +428,7 @@ export default function ListaPage() {
                         <button
                           type="button"
                           aria-label={`Quitar ${item.name} de la lista`}
-                          onClick={() => setABorrar(item)}
+                          onClick={() => onPulsarQuitar(item, gruposProducto.get(item.group_key) ?? [item])}
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-fg-subtle hover:bg-surface-2 hover:text-danger"
                         >
                           <Trash2 size={16} aria-hidden="true" />
@@ -381,12 +443,63 @@ export default function ListaPage() {
         </>
       )}
 
+      {/* Producto en una sola tanda: confirmacion simple, como antes. */}
       <ConfirmModal
-        open={aBorrar !== null}
+        open={aBorrar?.tipo === 'linea'}
         onClose={() => setABorrar(null)}
         onConfirm={onEliminarItem}
         title="Quitar de la lista"
-        description={aBorrar ? `Se quitara "${aBorrar.name}" de la lista de la compra.` : undefined}
+        description={
+          aBorrar?.tipo === 'linea' ? `Se quitará "${aBorrar.item.name}" de la lista de la compra.` : undefined
+        }
+      />
+
+      {/* Producto repartido en varias tandas: hay que elegir que quitar,
+          porque "quitar de la lista" aqui es ambiguo (esta tanda, o el
+          producto entero). Un ConfirmModal normal solo tiene un boton de
+          confirmar, asi que se usa el Modal generico con dos acciones. */}
+      <Modal
+        open={aBorrar?.tipo === 'producto'}
+        onClose={() => setABorrar(null)}
+        title="Quitar de la lista"
+      >
+        {aBorrar?.tipo === 'producto' ? (
+          <div className="space-y-4">
+            <p className="text-sm text-fg-muted">
+              «{aBorrar.item.name}» esta repartido en {aBorrar.grupo.length} compras (una por
+              tanda, para que no se estropee). ¿Que quieres quitar?
+            </p>
+            <div className="flex flex-col gap-2">
+              <Button type="button" variant="secondary" full onClick={onEliminarItem}>
+                Quitar solo esta compra
+              </Button>
+              <Button type="button" variant="danger" full onClick={onQuitarProductoEntero}>
+                Quitar las {aBorrar.grupo.length} compras
+              </Button>
+              <Button type="button" variant="ghost" full onClick={() => setABorrar(null)}>
+                Cancelar
+              </Button>
+            </div>
+            {eliminarProducto.isError ? (
+              <p className="text-sm text-danger">No se pudo quitar el producto. Intentalo de nuevo.</p>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      {/* Borrar la lista entera: deja claro cuantas lineas se pierden, para
+          no confundirlo con quitar un solo producto. */}
+      <ConfirmModal
+        open={listaABorrar !== null}
+        onClose={() => setListaABorrar(null)}
+        onConfirm={onEliminarLista}
+        title="Borrar la lista"
+        confirmLabel="Borrar lista"
+        description={
+          listaABorrar
+            ? `Se borrará toda la lista, con sus ${listaABorrar.lineas} ${listaABorrar.lineas === 1 ? 'linea' : 'lineas'}. Esta accion no se puede deshacer.`
+            : undefined
+        }
       />
     </div>
   )
