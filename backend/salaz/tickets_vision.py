@@ -9,7 +9,11 @@ eso este modulo no toca nada fuera de si mismo, y por eso es facil de quitar
 o sustituir por otro proveedor el dia de manana.
 
 Aislado de Django a proposito, igual que tickets.py: la unica dependencia
-externa es el SDK oficial `anthropic`.
+externa es el SDK oficial `anthropic`. Import perezoso (dentro de la
+funcion, no aqui arriba): esta pieza es opcional -- si el paquete no esta
+instalado en un entorno dado (por ejemplo un venv local sin la clave
+configurada), el resto de la app tiene que poder arrancar igual, no solo
+fallar con un ModuleNotFoundError al cargar las vistas.
 """
 
 from __future__ import annotations
@@ -17,8 +21,6 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
-
-import anthropic
 
 
 class TranscripcionNoDisponible(Exception):
@@ -66,6 +68,11 @@ def transcribir_ticket(imagen_bytes: bytes, nombre_archivo: str) -> str:
     api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
     if not api_key:
         raise TranscripcionNoDisponible('No hay ANTHROPIC_API_KEY configurada en el servidor.')
+
+    try:
+        import anthropic
+    except ImportError as exc:
+        raise TranscripcionNoDisponible('Falta instalar el paquete "anthropic" en este entorno.') from exc
 
     media_type = mimetypes.guess_type(nombre_archivo)[0] or 'image/jpeg'
     if media_type not in _TIPOS_SOPORTADOS:
